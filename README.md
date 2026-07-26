@@ -1,5 +1,7 @@
 # PALSPlot.jl
 
+[![Julia Tests](https://github.com/pals-project/PALSPlot.jl/actions/workflows/test.yaml/badge.svg)](https://github.com/pals-project/PALSPlot.jl/actions/workflows/test.yaml)
+
 Floor-plan plotting for [PALS](https://github.com/campa-consortium/pals) lattices,
 built on [PALSJulia](https://github.com/pals-project/PALSJulia.jl) and
 [GLMakie](https://docs.makie.org/stable/).
@@ -161,8 +163,35 @@ Initial development. 2D floor plans with pan/zoom, click-to-inspect, Tao-style
 shape mapping, and curved bends are working. Planned: 3D views, building-wall
 overlays, and reference-orbit overlays.
 
-Known gap: every element is placed exactly, from its own `FloorP`, but the
-*within-element* curve of a bend is drawn in the projection plane from the
-heading `theta` alone. A bend with a non-zero `BendP.tilt_ref` — one that bends
-out of that plane — therefore has the right endpoints but the wrong arc between
-them.
+Known gap: **a reference curve that leaves the projection plane is drawn as
+though it did not.** Every element is placed exactly, from its own `FloorP`, but
+the frame the drawing is carried across it on is built from the heading `theta`
+alone — `FloorP.phi` and `FloorP.psi` are ignored, as is `BendP.tilt_ref`. So on
+a lattice that stays in the plane the drawing closes on the expander's floor
+coordinates to rounding (checked in the tests against `bta.pals.yaml`), while on
+one that does not:
+
+* a straight element is drawn at its full length rather than its projected
+  length, overshooting by `L·(1 − cos φ)` — 0.25 m on a 1.3 m cavity at
+  `phi = −0.63` in `convert.pals.yaml`;
+* a bend with a non-zero `tilt_ref` gets the right endpoints and the wrong arc
+  between them.
+
+Both fall out of building the frame from the standard's W matrix
+(`pals_floor.h`, Eq. www) rather than from `theta`.
+
+## Testing
+
+```console
+julia --project=. -e 'using Pkg; Pkg.develop(path="../PALSJulia"); Pkg.instantiate(); Pkg.test()'
+```
+
+CI runs the suite on Julia 1.11 and 1.12, on Linux and macOS, against **`main`
+of PALSJulia and pals-cpp** — both are checked out fresh and pals-cpp is built
+from source on every run. PALSJulia binds the pals-cpp C structs by layout and
+PALSPlot draws from the floor coordinates pals-cpp computes, so a change to
+either that PALSPlot has not followed shows up as a failure here rather than as
+an empty window later.
+
+The tests load GLMakie but never open a window. On Linux that still needs an X
+server to initialize against, so CI runs them under `xvfb-run`.

@@ -42,6 +42,28 @@ end
 
 _axis(c::Char, x, y, z) = c == 'x' ? x : c == 'y' ? y : z
 
+# Projected element frame: the forward direction ĝ and the transverse direction
+# n̂, for an element whose entrance heading is `th`.
+#
+# Both are the *branch axes* projected through the view, not one derived from the
+# other by rotating 90° in the picture plane: which way that rotation points
+# depends on the handedness of the axis pair, so "zx" and "xz" -- the same plane
+# seen with the screen axes swapped -- would get opposite transverse directions,
+# and a bend would curve the wrong way in one of them.
+#
+# ĝ is the branch z axis (sinθ, 0, cosθ) and n̂ the branch x axis
+# (cosθ, 0, -sinθ). Only the heading θ is used; `phi` and `psi` are ignored, so a
+# reference curve pitched or rolled out of the picture plane is drawn in it (see
+# the known gap in the README).
+@inline function _frame(a::Char, b::Char, th)
+  s, c = sin(th), cos(th)
+  gx = _axis(a, s, 0.0, c);  gy = _axis(b, s, 0.0, c)
+  nx = _axis(a, c, 0.0, -s); ny = _axis(b, c, 0.0, -s)
+  gn = hypot(gx, gy); gn > 0 && (gx /= gn; gy /= gn)
+  nn = hypot(nx, ny); nn > 0 && (nx /= nn; ny /= nn)
+  return gx, gy, nx, ny
+end
+
 # ── shape templates ───────────────────────────────────────────────────────────
 # Each returns (loops, segs) in normalized (f, w) coordinates. `loops` are closed
 # outlines; `segs` are independent strokes drawn inside/around the element.
@@ -163,10 +185,7 @@ function build_geometry(tab::ElementTable, smap::ShapeMap;
     th = tab.theta[i]; L = tab.length[i]; ang = tab.angle[i]
 
     P0 = Point2f(_axis(a, xi, yi, zi), _axis(b, xi, yi, zi))
-    # projected heading: local z-hat is (sinθ, 0, cosθ) in global (x,y,z)
-    gx = _axis(a, sin(th), 0.0, cos(th)); gy = _axis(b, sin(th), 0.0, cos(th))
-    gn = hypot(gx, gy); gn > 0 && (gx /= gn; gy /= gn)
-    nx, ny = -gy, gx     # transverse = heading rotated +90°
+    gx, gy, nx, ny = _frame(a, b, th)
 
     # centerline midpoint (for picking + label anchor)
     cmid, (mnx, mny) = _centerline_at(P0, gx, gy, nx, ny, L, ang, 0.5)
@@ -233,9 +252,7 @@ function element_outline(tab::ElementTable, i::Int; view::AbstractString="zx",
   xi, yi, zi = tab.x[i], tab.y[i], tab.z[i]
   th = tab.theta[i]; L = tab.length[i]; ang = tab.angle[i]
   P0 = Point2f(_axis(a, xi, yi, zi), _axis(b, xi, yi, zi))
-  gx = _axis(a, sin(th), 0.0, cos(th)); gy = _axis(b, sin(th), 0.0, cos(th))
-  gn = hypot(gx, gy); gn > 0 && (gx /= gn; gy /= gn)
-  nx, ny = -gy, gx
+  gx, gy, nx, ny = _frame(a, b, th)
   h = Float32(max(minsize, 0.3) * pad)
 
   nsamp = max(2, ceil(Int, abs(ang) / arc_tol) + 1)

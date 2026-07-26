@@ -1,0 +1,112 @@
+name: Julia Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+# PALSPlot sits on top of two moving repositories -- PALSJulia binds the pals-cpp
+# C structs by layout, and pals-cpp is what computes the floor coordinates the
+# plotter draws from -- so both are checked out at `main` and pals-cpp is built
+# from source. A change to either that PALSPlot has not followed shows up here.
+
+jobs:
+  test:
+    name: Julia ${{ matrix.julia-version }} - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        julia-version: ['1.11', '1.12']
+        os: [macos-latest, ubuntu-latest]
+
+    steps:
+      # The three repositories side by side, the layout the README describes and
+      # the one PALSJulia searches: it looks for the shared library at
+      # `<PALSJulia>/../pals-cpp/build`, and PALSPlot's Project.toml develops
+      # PALSJulia at `../PALSJulia`.
+      - name: Checkout PALSPlot repository
+        uses: actions/checkout@v5
+        with:
+          path: PALSPlot
+
+      # Checked out as `PALSJulia`, not `PALSJulia.jl`: that is the directory
+      # name Project.toml and PALSJulia's own library search both expect.
+      - name: Checkout PALSJulia repository
+        uses: actions/checkout@v5
+        with:
+          repository: pals-project/PALSJulia.jl
+          path: PALSJulia
+
+      - name: Checkout pals-cpp repository
+        uses: actions/checkout@v5
+        with:
+          repository: pals-project/pals-cpp
+          path: pals-cpp
+
+      - name: Setup Julia
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ matrix.julia-version }}
+
+      - uses: julia-actions/cache@v2
+
+      # pals-cpp fetches rapidyaml (and the rest) itself via CMake FetchContent,
+      # so a compiler and CMake are all that is needed for it; both runners ship
+      # CMake preinstalled. The rest of this list is for GLMakie, which PALSPlot
+      # loads at `using` time: it needs OpenGL headers and libraries to build and
+      # an X server to initialize against, neither of which a headless Ubuntu
+      # runner has. macOS needs none of it.
+      - name: Install system dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake build-essential \
+            xvfb xorg-dev mesa-utils libgl1 freeglut3-dev \
+            libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev
+
+      # The library and Julia must share a C++ runtime. On macOS that means
+      # clang/libc++ -- the runner default, so CC/CXX are left unset rather than
+      # pointed anywhere. If they ever disagree, loading GLMakie and then parsing
+      # a lattice aborts the process rather than failing a test (see the README).
+      - name: Build the pals-cpp shared library
+        working-directory: pals-cpp
+        run: |
+          cmake -S . -B build
+          cmake --build build --parallel
+        shell: bash
+
+      - name: Check the C++ runtime the library links (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          otool -L pals-cpp/build/libyaml_c_wrapper.dylib
+          if otool -L pals-cpp/build/libyaml_c_wrapper.dylib | grep -q libstdc++; then
+            echo "::error::libyaml_c_wrapper links libstdc++; Julia and GLMakie need libc++"
+            exit 1
+          fi
+        shell: bash
+
+      - name: Instantiate
+        working-directory: PALSPlot
+        run: |
+          julia --project=. -e '
+            using Pkg
+            Pkg.develop(path="../PALSJulia")
+            Pkg.instantiate()
+          '
+        shell: bash
+
+      - name: Run tests (Ubuntu)
+        if: runner.os == 'Linux'
+        working-directory: PALSPlot
+        run: xvfb-run -a -s '-screen 0 1024x768x24' julia --project=. -e 'using Pkg; Pkg.test()'
+        shell: bash
+
+      - name: Run tests (macOS)
+        if: runner.os == 'macOS'
+        working-directory: PALSPlot
+        run: julia --project=. -e 'using Pkg; Pkg.test()'
+        shell: bash
