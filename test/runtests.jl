@@ -190,6 +190,98 @@ end
     @test isempty(none.label_str)
 end
 
+# Labels are laid across the line rather than along it, so that neighbours --
+# which are strung out along the line -- do not run into each other.
+@testset "geometry: labels sit perpendicular to the centerline" begin
+    smap = ShapeMap([ele_shape("Quadrupole", :box, :black; label=:name)])
+    # Headings all round the compass, one element each, so the label rotation
+    # has to track the centerline rather than a fixed direction.
+    for (k, th) in enumerate(range(0, 2π, length=17)[1:16])
+        tab = synth_table(names=["q$k"], kinds=["Quadrupole"], lengths=[1.0],
+                          x=[0.0], z=[0.0], theta=[th], angle=[0.0])
+        g = pp.build_geometry(tab, smap; view="zx")
+        rot = only(g.label_rot)
+
+        # Always readable: never upside down, never past the vertical.
+        @test -π / 2 - 1e-6 <= rot <= π / 2 + 1e-6
+
+        # And perpendicular to the element: the centerline runs along ĝ, the
+        # text along the rotation, so the two are a right angle apart (mod π,
+        # since the readability fold can reverse the text direction).
+        gx, gy, = pp._frame('z', 'x', th)
+        along = atan(gy, gx)
+        @test isapprox(mod(rot - along, π), π / 2; atol = 1e-5)
+    end
+
+    # A label starts at its anchor and runs outward, away from the centerline,
+    # whichever way the readability fold left it pointing.
+    for th in (0.0, π)          # normal points +x on one, -x on the other
+        tab = synth_table(names=["q1"], kinds=["Quadrupole"], lengths=[1.0],
+                          x=[0.0], z=[0.0], theta=[th], angle=[0.0])
+        g = pp.build_geometry(tab, smap; view="zx")
+        _, _, nx, ny = pp._frame('z', 'x', th)
+        rot = only(g.label_rot)
+        reading = (cos(rot), sin(rot))          # direction the glyphs run
+        outward = (nx, ny)                      # direction the anchor is offset
+        toward_outside = reading[1] * outward[1] + reading[2] * outward[2]
+        # :left grows along the reading direction, :right against it; either way
+        # the growth must have a positive component along the outward normal.
+        grow = only(g.label_align)[1] === :left ? toward_outside : -toward_outside
+        @test grow > 0
+    end
+end
+
+# Overlapping elements -- a pickup with correctors wound around it, say -- put
+# their labels on the same anchor, and being perpendicular does not separate
+# them: they share a ray. Those get stacked out along it.
+@testset "geometry: colliding labels stack outward in branch order" begin
+    smap = ShapeMap([ele_shape("Instrument", :box, :black; label=:name),
+                     ele_shape("Kicker", :box, :black; label=:name)])
+    # Three zero-length elements at one spot, the shape in the bta example.
+    coincident = synth_table(names=["pue_a12", "dhca12", "dvca12"],
+                             kinds=["Instrument", "Kicker", "Kicker"],
+                             lengths=[0.0, 0.0, 0.0], x=[0.0, 0.0, 0.0],
+                             z=[10.0, 10.0, 10.0], theta=zeros(3), angle=zeros(3))
+    g = pp.build_geometry(coincident, smap; view="zx")
+    @test g.label_str == ["pue_a12", "dhca12", "dvca12"]
+
+    # All three keep the one anchor: the stack is a shift off it, not a move.
+    @test allequal(g.label_pos)
+
+    # First in the branch stays on the centerline, the rest step out past it, in
+    # branch order.
+    @test g.label_stack[1] == 0
+    @test issorted(g.label_stack)
+    @test allunique(g.label_stack)
+
+    # Each step clears the label it has to get past: at least its length in
+    # characters, times the mean glyph advance, plus a gap.
+    for k in 2:3
+        step = g.label_stack[k] - g.label_stack[k - 1]
+        @test step >= length(g.label_str[k - 1]) * pp._CHAR_EM
+    end
+
+    # Elements far enough apart are left where they are.
+    apart = synth_table(names=["pue_a12", "dhca12", "dvca12"],
+                        kinds=["Instrument", "Kicker", "Kicker"],
+                        lengths=[0.0, 0.0, 0.0], x=[0.0, 0.0, 0.0],
+                        z=[10.0, 20.0, 30.0], theta=zeros(3), angle=zeros(3))
+    @test all(iszero, pp.build_geometry(apart, smap; view="zx").label_stack)
+
+    # ...and `label_sep=0` turns the stacking off entirely.
+    off = pp.build_geometry(coincident, smap; view="zx", label_sep=0)
+    @test all(iszero, off.label_stack)
+
+    # The shift reaches the plot as a pixel offset pointing away from the line.
+    offs = pp._label_offsets(g, 11)
+    @test offs[1] == Makie.Vec2f(0, 0)
+    _, _, nx, ny = pp._frame('z', 'x', 0.0)
+    for k in 2:3
+        @test offs[k][1] * nx + offs[k][2] * ny > 0      # outward, not inward
+        @test hypot(offs[k]...) ≈ 11 * g.label_stack[k] rtol = 1e-5
+    end
+end
+
 # Extraction from a real expanded lattice, if the sibling PALSJulia checkout with
 # its example files is present (the same side-by-side layout the parser needs).
 _lattice_file(name) = normpath(joinpath(@__DIR__, "..", "..", "PALSJulia",
@@ -333,6 +425,59 @@ end
     # Selecting an element drives the highlight overlay.
     fp.selected[] = 2
     @test !isempty(element_outline(fp.table, 2; view="zx"))
+end
+
+# The mouse bindings the docs promise. These are registered `Axis` interactions,
+# so they can be driven headlessly by handing `process_interaction` a synthetic
+# MouseEvent -- no window, no backend, no real cursor. Without this the click and
+# double-click paths are only ever exercised by hand.
+@testset "mouse bindings" begin
+    tab = synth_table(names=["q1", "b1"], kinds=["Quadrupole", "Bend"],
+                      lengths=[0.5, 1.0], x=[0.0, 0.0], z=[0.0, 0.5],
+                      theta=[0.0, 0.0], angle=[0.0, 0.2])
+    fp = floor_plot(tab; view="zx")
+    ax = fp.axis
+
+    # Selection is registered under the name the source registers it by, next to
+    # Makie's own bindings (the reset among them).
+    @test haskey(Makie.interactions(ax), :selectelement)
+    @test haskey(Makie.interactions(ax), :limitreset)
+
+    mev(type, pos) = Makie.MouseEvent(type, 0.0, Point2d(pos), Point2f(0, 0),
+                                      0.0, Point2d(pos), Point2f(0, 0))
+    fire(type, pos) = Makie.process_axis_event(ax, mev(type, pos))
+    ctrl!(down) = (down ? push! : delete!)(events(ax.scene).keyboardstate,
+                                           Keyboard.left_control)
+
+    # A left-click near an element selects it; the second element sits near
+    # (z, x) = (1.0, 0.0), the first near (0.25, 0.0).
+    fire(Makie.MouseEventTypes.leftclick, fp.geometry.ele_center[2])
+    @test fp.selected[] == 2
+    fire(Makie.MouseEventTypes.leftclick, fp.geometry.ele_center[1])
+    @test fp.selected[] == 1
+
+    # Zoom the way the rubber-band and scroll interactions do, by moving
+    # `targetlimits`. (Not `limits!`, which sets the axis's *stored* limits --
+    # what a reset resets back *to*, so a reset would then be a no-op.)
+    zoom_in!() = (ax.targetlimits[] = Rect2(0.4, -0.1, 0.2, 0.2))
+
+    # Ctrl-left-click is Makie's reset. It must not also select: `ax.interactions`
+    # is an unordered Dict, so this only holds because selection checks the
+    # modifier itself rather than trusting that the reset ran first.
+    zoom_in!()
+    zoomed = ax.finallimits[]
+    ctrl!(true)
+    fire(Makie.MouseEventTypes.leftclick, fp.geometry.ele_center[2])
+    ctrl!(false)
+    @test ax.finallimits[] != zoomed
+    @test fp.selected[] == 1
+
+    # Without the modifier the same click selects and leaves the view alone.
+    zoom_in!()
+    zoomed = ax.finallimits[]
+    fire(Makie.MouseEventTypes.leftclick, fp.geometry.ele_center[2])
+    @test ax.finallimits[] == zoomed
+    @test fp.selected[] == 2
 end
 
 # Building a figure is not the same as being able to draw one: rasterizing it

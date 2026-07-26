@@ -25,7 +25,7 @@ screen = display(fp)      # opens the GLMakie window
 
 println("""
 Controls: scroll = zoom,  right-drag = pan,  left-drag = rubber-band zoom,
-          double-click = reset view,  left-click = select an element.""")
+          ctrl-left-click = reset view,  left-click = select an element.""")
 
 # Keep the process alive while the window is open when run as a script.
 if !isinteractive()

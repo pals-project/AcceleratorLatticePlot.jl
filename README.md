@@ -79,15 +79,20 @@ or run the bundled example:
 julia --project=. examples/floor_plan.jl path/to/machine.pals.yaml
 ```
 
-**Controls** (Makie's default `Axis` bindings)
+**Controls**
 
 | gesture | action |
 |---|---|
 | scroll wheel | zoom in/out at the cursor |
 | **right-drag** | pan |
 | left-drag | rubber-band zoom to a rectangle |
-| double-click | reset to the full view |
-| left-click | select an element (lists its parameters in the side panel) |
+| `ctrl` + **left**-click | reset to the full view |
+| `ctrl` + `shift` + **left**-click | reset to limits recomputed from the data |
+| left-click (no modifier) | select an element (lists its parameters in the side panel) |
+
+Everything but selection is a Makie default `Axis` binding. Makie has no
+double-click binding, so **double-clicking does nothing** — `ctrl`-left-click is
+the reset.
 
 ### Which expanded view
 
@@ -147,6 +152,18 @@ Available shapes: `:box`, `:xbox`, `:x`, `:bow_tie`, `:rbow_tie`, `:diamond`,
 `:u_triangle`, `:d_triangle`, `:l_triangle`, `:r_triangle`, `:circle`, `:none`.
 `size` is the transverse half-height in meters; `label` is `:name`, `:s`, or
 `:none`. Pass `defaults=false` to `ShapeMap` to use only your own rules.
+
+Labels are drawn perpendicular to the centerline, running outward from the
+element, and tilted only within ±90° so none of them come out upside down.
+Elements are strung out *along* the line, so laying their labels across it is
+what keeps neighbouring names from running into each other.
+
+Elements that sit on top of each other — a pickup with its two correctors, say —
+defeat that, since their labels share one anchor and one ray. Those are detected
+and stacked along the ray instead, the element earliest in the branch keeping the
+place nearest the centerline. `floor_plot(...; label_sep=…)` sets how close two
+anchors have to be to count as colliding, in units of the elements' half-height;
+`label_sep=0` turns the stacking off.
 
 ## Projection
 

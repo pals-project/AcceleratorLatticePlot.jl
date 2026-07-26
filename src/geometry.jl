@@ -31,6 +31,9 @@ struct FloorGeometry
 
   label_pos::Vector{Point2f}
   label_str::Vector{String}
+  label_rot::Vector{Float32}                  # radians, in [-pi/2, pi/2]
+  label_align::Vector{Tuple{Symbol,Symbol}}
+  label_stack::Vector{Float32}                # collision shift, in font sizes
   label_ele::Vector{Int}
 
   ele_center::Vector{Point2f}       # projected element midpoint (for picking)
@@ -126,24 +129,64 @@ end
   return p, (nnx, nny)
 end
 
+# ── label collisions ──────────────────────────────────────────────────────────
+# Elements that occupy the same piece of the machine -- a pickup and the two
+# correctors wound around it, say -- have their midpoints, and so their label
+# anchors, on top of each other. Perpendicular labels do not help there: they
+# are all on the same ray and print over one another. Such labels get pushed
+# out along that ray, one after the next, so they read as a stack.
+#
+# The shift is measured in font sizes rather than meters because that is what
+# the text is: a fixed size on screen, unaffected by zoom. The caller turns it
+# into a pixel offset (see `render.jl`).
+
+const _CHAR_EM = 0.62f0    # mean glyph advance of the label font, in font sizes
+const _GAP_EM = 0.9f0      # blank left between one stacked label and the next
+
+# Labels arrive in element order, which is branch order, so a run of colliding
+# labels is a run of consecutive entries. Each is tested against the one before
+# it -- chaining, so three coincident elements form one stack of three -- and
+# the first of the run keeps the anchor, leaving it closest to the centerline.
+function _stack_labels!(stack, pos, str, hs, sep)
+  isempty(stack) && return stack
+  stack[1] = 0
+  for k in 2:length(stack)
+    d = hypot(pos[k][1] - pos[k - 1][1], pos[k][2] - pos[k - 1][2])
+    stack[k] = if d < sep * 0.5 * (hs[k] + hs[k - 1])
+      stack[k - 1] + _CHAR_EM * length(str[k - 1]) + _GAP_EM
+    else
+      0.0f0
+    end
+  end
+  return stack
+end
+
 # ── main builder ──────────────────────────────────────────────────────────────
 
 """
     build_geometry(tab::ElementTable, smap::ShapeMap; view="zx",
-                   arc_tol=0.08, circle_sides=24) -> FloorGeometry
+                   arc_tol=0.08, circle_sides=24, label_sep=1.0) -> FloorGeometry
 
 Compute batched draw data for the whole lattice. `view` selects the projection
 plane. `arc_tol` is the max angular step (rad) used to tessellate bend arcs.
+
+`label_sep` sets when two labels count as colliding: they do when their anchors
+are closer than `label_sep` times the mean of the two elements' half-heights,
+which are the scale the drawing (and so the readable font size) is built around.
+Colliding labels are stacked outward along the centerline normal. Raise it to
+stack more eagerly, or set it to 0 to switch the stacking off.
 """
 function build_geometry(tab::ElementTable, smap::ShapeMap;
                         view::AbstractString="zx", arc_tol::Real=0.08,
-                        circle_sides::Int=24)
+                        circle_sides::Int=24, label_sep::Real=1.0)
   a, b = view[1], view[2]
 
   outline_pts = Point2f[]; outline_col = RGBA{Float32}[]; outline_wid = Float32[]
   seg_pts = Point2f[];     seg_col = RGBA{Float32}[]
   ref_pts = Point2f[]
   label_pos = Point2f[];   label_str = String[]; label_ele = Int[]
+  label_rot = Float32[];   label_align = Tuple{Symbol,Symbol}[]
+  label_h = Float32[]      # each label's element half-height; collision scale
   ele_center = Vector{Point2f}(undef, length(tab))
 
   # Emit a normalized closed loop mapped through element i's centerline. Edges
@@ -225,18 +268,34 @@ function build_geometry(tab::ElementTable, smap::ShapeMap;
       end
     end
 
-    # label, offset transversely just past the shape
+    # Label, offset transversely just past the shape and set running along the
+    # transverse normal, i.e. perpendicular to the centerline. Neighbouring
+    # elements are strung out *along* the line, so labels laid across it stay
+    # clear of each other where horizontal ones would collide.
     if spec.label !== :none
       off = 1.6f0 * h
       push!(label_pos, Point2f(cmid[1] + off * mnx, cmid[2] + off * mny))
       push!(label_str, spec.label === :s ? string(round(tab.s[i]; digits=3)) : tab.name[i])
+      # Reading direction is n̂ folded into the right half-plane, so text is
+      # never upside down and the angle lands in [-pi/2, pi/2]. Where that
+      # folding reverses n̂ the anchor flips with it, so the label always grows
+      # away from the centerline rather than back across the machine.
+      flip = mnx < 0 || (mnx == 0 && mny < 0)
+      rx, ry = flip ? (-mnx, -mny) : (mnx, mny)
+      push!(label_rot, Float32(atan(ry, rx)))
+      push!(label_align, flip ? (:right, :center) : (:left, :center))
+      push!(label_h, h)
       push!(label_ele, i)
     end
   end
 
+  label_stack = Vector{Float32}(undef, length(label_pos))
+  _stack_labels!(label_stack, label_pos, label_str, label_h, label_sep)
+
   return FloorGeometry(outline_pts, outline_col, outline_wid,
                        seg_pts, seg_col, ref_pts, RGBA{Float32}(0, 0, 0, 1),
-                       label_pos, label_str, label_ele, ele_center)
+                       label_pos, label_str, label_rot, label_align, label_stack,
+                       label_ele, ele_center)
 end
 
 """
