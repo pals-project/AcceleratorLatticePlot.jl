@@ -14,16 +14,24 @@ import PALSJulia as pj
 # C++ runtime (see the README), so running the two together is deliberate.
 using CairoMakie
 
+# Triangle vertex indices as plain Ints. Faces are GeometryBasics `OffsetInteger`
+# triples, which index correctly but do not convert to Int on their own.
+faceverts(f) = Int.(pp.GeometryBasics.value.(Tuple(f)))
+
 # A throwaway node to fill ElementTable.node in synthetic tables.
 const NODE = pj.parse_string("kind: Drift\n")
 
-# Build a one-branch ElementTable by hand.
-function synth_table(; names, kinds, lengths, x, z, theta, angle)
+# Build a one-branch ElementTable by hand. `phi`, `psi` and `tilt` default to
+# zero, which is the horizontal-plane case; pass them to build a lattice that
+# leaves the plane.
+function synth_table(; names, kinds, lengths, x, z, theta, angle,
+                     y=nothing, phi=nothing, psi=nothing, tilt=nothing)
     n = length(names)
+    zed(v) = v === nothing ? zeros(n) : collect(v)
     return pp.ElementTable(collect(names), collect(kinds), collect(lengths),
-                           collect(x), zeros(n), collect(z), collect(theta),
-                           collect(angle), collect(z), ones(Int, n),
-                           fill(NODE, n), ["b"])
+                           collect(x), zed(y), collect(z), collect(theta),
+                           zed(phi), zed(psi), collect(angle), zed(tilt),
+                           collect(z), ones(Int, n), fill(NODE, n), ["b"])
 end
 
 @testset "shape rules" begin
@@ -61,6 +69,123 @@ end
     fallback = mapshape(m, "Wibbler", "w1")
     for k in kinds
         @test mapshape(m, k, "e1") !== fallback
+    end
+end
+
+# The orientation matrix of the standard (Eq. www). Everything drawn is carried
+# on this, so it is checked against the standard's own statement of it rather
+# than against the code's.
+@testset "W matrix" begin
+    for (th, ph, ps) in ((0.0, 0.0, 0.0), (0.3, 0.0, 0.0), (0.3, -0.2, 0.7),
+                         (-1.1, 0.4, -0.9), (2.8, -0.63, -2.17))
+        W = pp.w_matrix(th, ph, ps)
+
+        # The direction of travel is the third column, which the standard gives
+        # in closed form.
+        z = pp.zaxis(W)
+        @test isapprox(z[1], sin(th) * cos(ph); atol=1e-12)
+        @test isapprox(z[2], -sin(ph); atol=1e-12)
+        @test isapprox(z[3], cos(th) * cos(ph); atol=1e-12)
+
+        # ...and W is a rotation: its columns are orthonormal and right-handed.
+        cols = (pp.xaxis(W), pp.yaxis(W), pp.zaxis(W))
+        for (i, u) in enumerate(cols), (j, v) in enumerate(cols)
+            @test isapprox(pp.dot3(u, v), i == j ? 1.0 : 0.0; atol=1e-12)
+        end
+        @test isapprox(pp.dot3(pp.cross3(cols[1], cols[2]), cols[3]), 1.0; atol=1e-6)
+    end
+
+    # With no pitch or roll it is a heading in the horizontal plane, which is all
+    # the drawing used to know about.
+    W = pp.w_matrix(0.7, 0.0, 0.0)
+    @test isapprox(pp.zaxis(W), pp.Vec3d(sin(0.7), 0, cos(0.7)); atol=1e-12)
+    @test isapprox(pp.xaxis(W), pp.Vec3d(cos(0.7), 0, -sin(0.7)); atol=1e-12)
+end
+
+# `place` is pals-cpp's floor_propagate applied to straight_LS/bend_LS, evaluated
+# partway along the element. Each of those pieces is checked separately, and then
+# the property that matters most: propagating in steps must agree with
+# propagating in one go, since that is what carrying a shape along an arc does.
+@testset "reference-curve propagation" begin
+    r0 = pp.Vec3d(1.0, 2.0, 3.0)
+    W0 = pp.w_matrix(0.4, -0.2, 0.9)
+
+    # f = 0 is the element's own upstream placement, untouched.
+    p = pp.place(r0, W0, 5.0, 0.3, 0.1, 0.0)
+    @test isapprox(p.r, r0; atol=1e-12)
+    @test isapprox(pp.zaxis(p.W), pp.zaxis(W0); atol=1e-12)
+
+    # Straight: L = (0, 0, len) in the branch frame, orientation unchanged.
+    p = pp.place(r0, W0, 5.0, 0.0, 0.0, 1.0)
+    @test isapprox(p.r, r0 + 5.0 * pp.zaxis(W0); atol=1e-12)
+    @test isapprox(pp.xaxis(p.W), pp.xaxis(W0); atol=1e-12)
+
+    # Bend, untilted (Eq. lrztt): rho*sin(angle) along z, rho*(cos(angle)-1)
+    # along x -- a positive angle moving the exit toward negative branch x.
+    len, ang = 4.0, 0.7
+    rho = len / ang
+    p = pp.place(r0, W0, len, ang, 0.0, 1.0)
+    expect = r0 + rho * sin(ang) * pp.zaxis(W0) + rho * (cos(ang) - 1) * pp.xaxis(W0)
+    @test isapprox(p.r, expect; atol=1e-12)
+
+    # A tilt of pi/2 rolls the same arc into the vertical plane: what was a
+    # displacement along branch x becomes one along branch y.
+    p = pp.place(r0, W0, len, ang, π / 2, 1.0)
+    expect = r0 + rho * sin(ang) * pp.zaxis(W0) + rho * (cos(ang) - 1) * pp.yaxis(W0)
+    @test isapprox(p.r, expect; atol=1e-9)
+
+    # Propagation composes: half an element, then half again from there, is the
+    # whole element. A drawing that got this wrong would still start and end in
+    # the right places while bulging in between.
+    for ang in (0.0, 0.7, -0.4)
+        whole = pp.place(r0, W0, len, ang, 0.0, 1.0)
+        half = pp.place(r0, W0, len, ang, 0.0, 0.5)
+        rest = pp.place(half.r, half.W, len / 2, ang / 2, 0.0, 1.0)
+        @test isapprox(whole.r, rest.r; atol=1e-9)
+        @test isapprox(pp.zaxis(whole.W), pp.zaxis(rest.W); atol=1e-9)
+        @test isapprox(pp.xaxis(whole.W), pp.xaxis(rest.W); atol=1e-9)
+    end
+
+    # A bend of vanishing angle is a straight element, not a division by zero.
+    p = pp.place(r0, W0, 2.0, 0.0, 0.4, 1.0)
+    @test isapprox(p.r, r0 + 2.0 * pp.zaxis(W0); atol=1e-12)
+end
+
+# A tilted bend follows pals-cpp's `bend_LS`, which implements the standard's
+# Eq. ustt. That is a deliberate choice and not an obvious one, because the
+# standard's own alternative form for the same rotation, Eq. srrr, is a *different
+# rotation*: it is the untilted bend conjugated by R_z(tilt_ref), which is what
+# the displacement in Eq. lrztt already is, whereas Eq. ustt flips the sign of the
+# rotation axis's first component. Under Eq. ustt the frame's z axis leaves the
+# tangent to its own arc.
+#
+# PALSPlot follows the expander so that the drawing meets the `FloorP` the
+# expander wrote at the bend's exit face (see the closure tests below). These
+# tests exist to say which convention that is out loud: if pals-cpp switches to
+# Eq. srrr, they fail here and point at the reason.
+@testset "tilted bends follow the expander's convention" begin
+    ustt(a, t) = pp.axis_angle(pp.Vec3d(-sin(t), -cos(t), 0.0), a)
+    srrr(a, t) = pp.rot_z(t) * (pp.rot_y(-a) * pp.rot_z(-t))
+    r0 = pp.Vec3d(0.0, 0.0, 0.0)
+
+    for (a, t) in ((0.4, 0.3), (0.4, π / 2), (-0.9, 1.3))
+        p = pp.place(r0, pp.I3, 2.0, a, t, 1.0)
+        @test isapprox(pp.zaxis(p.W), pp.zaxis(ustt(a, t)); atol=1e-9)
+
+        # The two forms really are different rotations, so following one rather
+        # than the other is a choice with consequences.
+        @test !isapprox(pp.zaxis(ustt(a, t)), pp.zaxis(srrr(a, t)); atol=1e-3)
+
+        # ...and it is Eq. srrr whose frame stays tangent to the arc the
+        # displacement of Eq. lrztt traces out.
+        tangent = pp.rot_z(t) * pp.Vec3d(-sin(a), 0.0, cos(a))
+        @test isapprox(pp.zaxis(srrr(a, t)), tangent; atol=1e-9)
+        @test !isapprox(pp.zaxis(ustt(a, t)), tangent; atol=1e-3)
+    end
+
+    # With no tilt the question does not arise: the two forms coincide.
+    for a in (0.4, -0.9)
+        @test isapprox(pp.zaxis(ustt(a, 0.0)), pp.zaxis(srrr(a, 0.0)); atol=1e-12)
     end
 end
 
@@ -208,7 +333,7 @@ end
         # And perpendicular to the element: the centerline runs along ĝ, the
         # text along the rotation, so the two are a right angle apart (mod π,
         # since the readability fold can reverse the text direction).
-        gx, gy, = pp._frame('z', 'x', th)
+        gx, gy, = pp.proj_axes('z', 'x', pp.w_matrix(th, 0, 0))
         along = atan(gy, gx)
         @test isapprox(mod(rot - along, π), π / 2; atol = 1e-5)
     end
@@ -219,7 +344,7 @@ end
         tab = synth_table(names=["q1"], kinds=["Quadrupole"], lengths=[1.0],
                           x=[0.0], z=[0.0], theta=[th], angle=[0.0])
         g = pp.build_geometry(tab, smap; view="zx")
-        _, _, nx, ny = pp._frame('z', 'x', th)
+        _, _, nx, ny = pp.proj_axes('z', 'x', pp.w_matrix(th, 0, 0))
         rot = only(g.label_rot)
         reading = (cos(rot), sin(rot))          # direction the glyphs run
         outward = (nx, ny)                      # direction the anchor is offset
@@ -275,11 +400,147 @@ end
     # The shift reaches the plot as a pixel offset pointing away from the line.
     offs = pp._label_offsets(g, 11)
     @test offs[1] == Makie.Vec2f(0, 0)
-    _, _, nx, ny = pp._frame('z', 'x', 0.0)
+    _, _, nx, ny = pp.proj_axes('z', 'x', pp.w_matrix(0.0, 0, 0))
     for k in 2:3
         @test offs[k][1] * nx + offs[k][2] * ny > 0      # outward, not inward
         @test hypot(offs[k]...) ≈ 11 * g.label_stack[k] rtol = 1e-5
     end
+end
+
+# ── 3D geometry ───────────────────────────────────────────────────────────────
+
+# The mesh is handed to a renderer whole, so what matters is that it is *valid*:
+# indices in range, no NaN, unit normals, and a vertex-to-element map that lines
+# up with the vertices, since picking reads elements out of it.
+@testset "3D geometry: the mesh is well formed" begin
+    for shape in pp.SHAPE_NAMES
+        tab = synth_table(names=["e"], kinds=["Widget"], lengths=[1.0],
+                          x=[0.0], z=[0.0], theta=[0.4], angle=[0.3])
+        m = ShapeMap([ele_shape("Widget", shape, :black; size=0.5, size2=0.25)];
+                     defaults=false)
+        g = build_geometry3(tab, m)
+
+        @test length(g.mesh_nrm) == length(g.mesh_pts)
+        @test length(g.mesh_col) == length(g.mesh_pts)
+        @test length(g.vertex_ele) == length(g.mesh_pts)
+        @test all(p -> all(isfinite, p), g.mesh_pts)
+        @test all(n -> isapprox(hypot(n...), 1; atol=1e-4), g.mesh_nrm)
+        @test all(f -> all(k -> 1 <= k <= length(g.mesh_pts), faceverts(f)), g.mesh_faces)
+        @test all(==(1), g.vertex_ele)
+        # Every shape but the two that draw nothing solid makes a solid.
+        shape in (:x, :none) || @test !isempty(g.mesh_faces)
+    end
+end
+
+# Faces must be wound to agree with the normal they carry, or half a magnet
+# lights as though it were inside out.
+@testset "3D geometry: faces are wound to match their normals" begin
+    for shape in (:box, :xbox, :diamond, :bow_tie, :rbow_tie, :u_triangle,
+                  :r_triangle, :circle)
+        for ang in (0.0, 0.9)      # straight, and curved so the caps get sliced
+            tab = synth_table(names=["e"], kinds=["Widget"], lengths=[2.0],
+                              x=[0.0], z=[0.0], theta=[0.4], angle=[ang])
+            m = ShapeMap([ele_shape("Widget", shape, :black; size=0.5, size2=0.25)];
+                         defaults=false)
+            g = build_geometry3(tab, m)
+            for f in g.mesh_faces
+                i1, i2, i3 = faceverts(f)
+                gn = pp.cross3(g.mesh_pts[i2] - g.mesh_pts[i1],
+                               g.mesh_pts[i3] - g.mesh_pts[i1])
+                @test hypot(gn...) > 1e-9              # no slivers were emitted
+                @test pp.dot3(gn, g.mesh_nrm[i1]) > 0  # ...and it faces outward
+            end
+        end
+    end
+end
+
+# A straight box is the case with an answer that can be written down: a
+# rectangular prism of the element's length by 2*size by 2*size2, and no more
+# than eight distinct corners.
+@testset "3D geometry: a straight box is a box" begin
+    tab = synth_table(names=["e"], kinds=["Widget"], lengths=[2.0],
+                      x=[0.0], z=[0.0], theta=[0.0], angle=[0.0])
+    m = ShapeMap([ele_shape("Widget", :box, :black; size=0.5, size2=0.25)];
+                 defaults=false)
+    g = build_geometry3(tab, m; view="zxy")     # drawn x = global z, along it
+    @test length(unique(g.mesh_pts)) == 8
+    @test length(g.mesh_faces) == 12            # 6 quads
+    @test extrema(p -> p[1], g.mesh_pts) == (0.0f0, 2.0f0)
+    @test extrema(p -> p[2], g.mesh_pts) == (-0.5f0, 0.5f0)
+    @test extrema(p -> p[3], g.mesh_pts) == (-0.25f0, 0.25f0)
+
+    # size2 defaults to size, which makes it square in cross-section.
+    g2 = build_geometry3(tab, ShapeMap([ele_shape("Widget", :box, :black; size=0.4)];
+                                       defaults=false); view="zxy")
+    @test extrema(p -> p[3], g2.mesh_pts) == (-0.4f0, 0.4f0)
+end
+
+# The point of extruding the 2D profile rather than inventing a cross-section:
+# the 3D drawing seen from above *is* the floor plan. Checked as the silhouette,
+# since that is the part the two have to agree on.
+@testset "3D geometry: the silhouette from above is the floor plan" begin
+    lat_tab = synth_table(names=["b", "q", "s"], kinds=["Bend", "Quadrupole", "Sextupole"],
+                          lengths=[2.0, 0.5, 0.3], x=[0.0, 0.0, 0.0],
+                          z=[0.0, 2.0, 2.5], theta=[0.0, 0.3, 0.3],
+                          angle=[0.3, 0.0, 0.0])
+    g2 = pp.build_geometry(lat_tab, ShapeMap(); view="zx")
+    g3 = build_geometry3(lat_tab, ShapeMap(); view="zxy")
+    flat = filter(p -> !isnan(p[1]), g2.outline_pts)
+    for k in 1:2
+        lo2, hi2 = extrema(p -> p[k], flat)
+        lo3, hi3 = extrema(p -> p[k], g3.mesh_pts)
+        @test isapprox(lo2, lo3; atol=1e-4)
+        @test isapprox(hi2, hi3; atol=1e-4)
+    end
+end
+
+@testset "3D geometry: view permutes the drawn axes" begin
+    tab = synth_table(names=["e"], kinds=["Widget"], lengths=[2.0],
+                      x=[0.0], z=[0.0], theta=[0.0], angle=[0.0])
+    m = ShapeMap([ele_shape("Widget", :box, :black; size=0.5)]; defaults=false)
+    zxy = build_geometry3(tab, m; view="zxy")
+    xzy = build_geometry3(tab, m; view="xzy")
+    @test extrema(p -> p[1], zxy.mesh_pts) == extrema(p -> p[2], xzy.mesh_pts)
+    @test extrema(p -> p[2], zxy.mesh_pts) == extrema(p -> p[1], xzy.mesh_pts)
+    @test_throws ArgumentError build_geometry3(tab, m; view="zx")
+end
+
+# Coincident elements share a label anchor. The floor plan stacks their labels
+# outward along the ray they share; in 3D, where text billboards, they are
+# stacked vertically instead.
+@testset "3D geometry: colliding labels stack vertically" begin
+    smap = ShapeMap([ele_shape("Instrument", :box, :black; label=:name),
+                     ele_shape("Kicker", :box, :black; label=:name)])
+    coincident = synth_table(names=["pue_a12", "dhca12", "dvca12"],
+                             kinds=["Instrument", "Kicker", "Kicker"],
+                             lengths=[0.0, 0.0, 0.0], x=[0.0, 0.0, 0.0],
+                             z=[10.0, 10.0, 10.0], theta=zeros(3), angle=zeros(3))
+    g = build_geometry3(coincident, smap; view="zxy")
+    @test g.label_str == ["pue_a12", "dhca12", "dvca12"]
+    up = [p[3] for p in g.label_pos]         # drawn vertical is global y
+    @test issorted(up)
+    @test allunique(up)
+    # Horizontally they stay put: the stack is a lift, not a slide.
+    @test allequal([(p[1], p[2]) for p in g.label_pos])
+
+    apart = synth_table(names=["a", "b"], kinds=["Instrument", "Kicker"],
+                        lengths=[0.0, 0.0], x=[0.0, 0.0], z=[10.0, 30.0],
+                        theta=zeros(2), angle=zeros(2))
+    ga = build_geometry3(apart, smap; view="zxy")
+    @test ga.label_pos[1][3] == ga.label_pos[2][3]
+
+    off = build_geometry3(coincident, smap; view="zxy", label_sep=0)
+    @test allequal([p[3] for p in off.label_pos])
+end
+
+@testset "3D geometry: element_outline3 hugs the element" begin
+    tab = synth_table(names=["e"], kinds=["Widget"], lengths=[2.0],
+                      x=[0.0], z=[0.0], theta=[0.0], angle=[0.0])
+    pts = element_outline3(tab, 1; view="zxy")
+    @test !isempty(pts)
+    @test iseven(length(pts))              # drawn as segment pairs
+    @test all(p -> all(isfinite, p), pts)
+    @test extrema(p -> p[1], pts) == (0.0f0, 2.0f0)
 end
 
 # Extraction from a real expanded lattice, if the sibling PALSJulia checkout with
@@ -298,6 +559,45 @@ function drawn_ends(tab, i; view="zx")
     p = element_outline(tab, i; view=view)
     n = (length(p) - 1) ÷ 2            # p = [top(1:n); reverse(bot); top[1]]
     return ((p[1] .+ p[2n]) ./ 2, (p[n] .+ p[n+1]) ./ 2)
+end
+
+# A reference curve that leaves the picture plane used to be drawn as though it
+# did not: the drawing frame was built from the heading `theta` alone, so a
+# pitched element came out at its full length instead of its projected length --
+# overshooting by L(1 - cos(phi)), which on the 1.3 m cavity at phi = -0.63 in
+# convert.pals.yaml was a quarter of a metre. The frame is now the standard's W
+# matrix, so the projection is the real one.
+@testset "an element pitched out of the plane is drawn foreshortened" begin
+    L = 1.3
+    for phi in (0.0, -0.63, 0.9)
+        tab = synth_table(names=["c"], kinds=["RFCavity"], lengths=[L],
+                          x=[0.0], z=[0.0], theta=[0.0], angle=[0.0], phi=[phi])
+        entrance, exit = drawn_ends(tab, 1; view="zx")
+        # Heading is along z, pitched by phi, so the "zx" projection of the
+        # element's length is L*cos(phi) and none of it lands on the x axis.
+        @test isapprox(exit[1] - entrance[1], L * cos(phi); atol=1e-5)
+        @test isapprox(exit[2] - entrance[2], 0.0; atol=1e-5)
+
+        # The part that left the plane has to show up in a view that contains
+        # the vertical: in "zy" the same element rises by -L*sin(phi).
+        _, exit_zy = drawn_ends(tab, 1; view="zy")
+        entrance_zy, _ = drawn_ends(tab, 1; view="zy")
+        @test isapprox(exit_zy[2] - entrance_zy[2], -L * sin(phi); atol=1e-5)
+    end
+end
+
+# Roll shows up as the *width* of an element rather than its length: a magnet
+# rolled about its own axis presents a narrower face to a viewer above it.
+@testset "a rolled element is drawn narrower" begin
+    smap = ShapeMap([ele_shape("Quadrupole", :box, :black; size=0.5)])
+    for psi in (0.0, 0.5, π / 3)
+        tab = synth_table(names=["q"], kinds=["Quadrupole"], lengths=[1.0],
+                          x=[0.0], z=[0.0], theta=[0.0], angle=[0.0], psi=[psi])
+        g = pp.build_geometry(tab, smap; view="zx")
+        pts = filter(p -> !isnan(p[1]), g.outline_pts)
+        halfwidth = maximum(p -> abs(p[2]), pts)
+        @test isapprox(halfwidth, 0.5 * cos(psi); atol=1e-5)
+    end
 end
 
 if isfile(CONVERT)
@@ -375,6 +675,64 @@ if isfile(BTA)
         e_xz, _ = drawn_ends(tab, 1; view="xz")
         @test isapprox(e_xz[1], tab.x[1]; atol=1e-4)
         @test isapprox(e_xz[2], tab.z[1]; atol=1e-4)
+    end
+end
+
+# convert.pals.yaml is the lattice that does *not* stay in the horizontal plane:
+# nine of its elements carry a pitch and a roll, and one bend has a tilt_ref. It
+# is the case the drawing used to get wrong, so it gets checked the hard way --
+# against the expander's own floor coordinates rather than for self-consistency.
+if isfile(CONVERT)
+    @testset "the drawing closes on floor coordinates out of the plane" begin
+        lat = parse_and_expand_pals(CONVERT; problems=:none)
+        tab = element_table(lat)
+
+        # If this lattice ever becomes planar the rest of the testset stops
+        # meaning anything, so say so here rather than passing vacuously.
+        @test count(!=(0.0), tab.phi) > 0
+        @test count(!=(0.0), tab.psi) > 0
+        @test count(!=(0.0), tab.tilt_ref) > 0
+
+        # Carrying an element's placement across itself must land on the next
+        # element's FloorP -- position *and* orientation. Position alone would
+        # pass on a drawing whose elements were all correctly placed but rolled.
+        worst_r = 0.0; worst_W = 0.0
+        for i in 1:(length(tab) - 1)
+            tab.branch[i] == tab.branch[i + 1] || continue
+            p = pp.place(tab, i, 1.0)
+            nxt = pp.Vec3d(tab.x[i + 1], tab.y[i + 1], tab.z[i + 1])
+            worst_r = max(worst_r, hypot((p.r - nxt)...))
+            Wn = pp.w_matrix(tab.theta[i + 1], tab.phi[i + 1], tab.psi[i + 1])
+            for f in fieldnames(pp.Mat3)
+                worst_W = max(worst_W, abs(getfield(p.W, f) - getfield(Wn, f)))
+            end
+        end
+        @test worst_r < 1e-9
+        @test worst_W < 1e-9
+
+        # ...and the drawing itself, not just the math behind it: the drawn exit
+        # of each element is the drawn entrance of the next.
+        g = build_geometry3(tab, ShapeMap(); view="zxy")
+        worst = 0.0
+        for i in 1:(length(tab) - 1)
+            tab.branch[i] == tab.branch[i + 1] || continue
+            worst = max(worst, hypot((g.ele_exit[i] - g.ele_entrance[i + 1])...))
+        end
+        @test worst < 1e-3          # Point3f over a ~140 m lattice
+
+        # Every 2D projection closes too, including the two that show the
+        # vertical -- which is where drawing from `theta` alone came apart.
+        for view in ("zx", "zy", "xy")
+            worst2 = 0.0
+            for i in 1:(length(tab) - 1)
+                tab.branch[i] == tab.branch[i + 1] || continue
+                _, exit = drawn_ends(tab, i; view=view)
+                entrance, _ = drawn_ends(tab, i + 1; view=view)
+                worst2 = max(worst2, hypot(exit[1] - entrance[1],
+                                           exit[2] - entrance[2]))
+            end
+            @test worst2 < 1e-3
+        end
     end
 end
 
@@ -516,5 +874,155 @@ if isfile(CONVERT)
         @test occursin("kind: Bend", text)
         @test occursin("BendP:", text)
         @test occursin("angle_ref:", text)   # a derived value, so full_expanded
+    end
+end
+
+# ── the 3D plotter ────────────────────────────────────────────────────────────
+
+@testset "floor_plot3 builds a figure" begin
+    tab = synth_table(names=["q1", "b1"], kinds=["Quadrupole", "Bend"],
+                      lengths=[0.5, 1.0], x=[0.0, 0.0], z=[0.0, 0.5],
+                      theta=[0.0, 0.0], angle=[0.0, 0.2])
+    fp = floor_plot3(tab; title="test3")
+    @test fp isa FloorPlot3
+    @test fp.axis isa Makie.Axis3
+    @test fp.axis.title[] == "test3"
+    @test fp.selected[] == 0
+    @test length(fp.table) == 2
+    @test !isempty(fp.geometry.mesh_faces)
+
+    # A machine is long and thin, so an axis that normalized its three
+    # dimensions into one box would fatten it by that whole ratio.
+    @test fp.axis.aspect[] === :data
+
+    # The handle carries the same contract as the 2D one, which is what lets a
+    # script drive either.
+    @test fp.view == "zxy"
+    fp.selected[] = 2
+    @test !isempty(element_outline3(fp.table, 2; view=fp.view))
+end
+
+# Building a figure is not the same as being able to draw one: rasterizing runs
+# every plot object through a backend. CairoMakie sorts whole primitives rather
+# than pixels, so a big 3D mesh comes out with artifacts -- that is a reason not
+# to look at machines this way, not a reason to leave the path untested.
+@testset "the 3D figure renders through a backend" begin
+    tab = synth_table(names=["q1", "b1"], kinds=["Quadrupole", "Bend"],
+                      lengths=[0.5, 1.0], x=[0.0, 0.0], z=[0.0, 0.5],
+                      theta=[0.0, 0.0], angle=[0.0, 0.2])
+    fp = floor_plot3(tab; size=(400, 300))
+
+    img = Makie.colorbuffer(fp.figure)
+    @test size(img, 1) > 0 && size(img, 2) > 0
+    @test length(unique(img)) > 1        # something was drawn, not a blank
+
+    mktempdir() do dir
+        for ext in ("png", "pdf", "svg")
+            path = joinpath(dir, "floor3.$ext")
+            save(path, fp.figure)
+            @test isfile(path)
+            @test filesize(path) > 0
+        end
+    end
+end
+
+# Click-to-inspect in 3D. A cursor in a 3D axis is a ray, not a point, so this
+# does not work the way the floor plan's picking does and needs its own test.
+# There is no window here: the click is a synthetic `MouseEvent` at the pixel
+# `project` says the element sits at, which is exactly what a real click carries.
+@testset "3D mouse bindings" begin
+    tab = synth_table(names=["q1", "b1", "s1"],
+                      kinds=["Quadrupole", "Bend", "Sextupole"],
+                      lengths=[0.5, 1.0, 0.4], x=[0.0, 0.0, 0.0],
+                      z=[0.0, 2.0, 6.0], theta=zeros(3), angle=[0.0, 0.0, 0.0])
+    fp = floor_plot3(tab; size=(800, 600))
+    ax = fp.axis
+    Makie.update_state_before_display!(fp.figure)
+
+    # Registered next to Makie's own Axis3 bindings, the reset among them.
+    @test haskey(Makie.interactions(ax), :selectelement)
+    @test haskey(Makie.interactions(ax), :limitreset)
+    @test haskey(Makie.interactions(ax), :dragrotate)
+
+    mev(type, px) = Makie.MouseEvent(type, 0.0, Point2d(0, 0), Point2f(px),
+                                     0.0, Point2d(0, 0), Point2f(px))
+    click(px) = Makie.process_interaction(Makie.interactions(ax)[:selectelement][2],
+                                          mev(Makie.MouseEventTypes.leftclick, px), ax)
+    at(i) = Makie.project(ax.scene, fp.geometry.ele_center[i])
+    ctrl!(down) = (down ? push! : delete!)(events(ax.scene).keyboardstate,
+                                           Keyboard.left_control)
+
+    for i in (2, 1, 3)
+        click(at(i))
+        @test fp.selected[] == i
+    end
+
+    # Ctrl-left-click is Makie's view reset, not a selection. `ax.interactions`
+    # is an unordered Dict, so this holds only because selection checks the
+    # modifier itself rather than trusting that the reset ran first.
+    click(at(1))
+    ctrl!(true)
+    click(at(3))
+    ctrl!(false)
+    @test fp.selected[] == 1
+
+    # A click far from the machine selects nothing rather than the least-distant
+    # element in the lattice.
+    fp.selected[] = 0
+    click(Point2f(-4000, -4000))
+    @test fp.selected[] == 0
+end
+
+# Overlays are ordinary plots on the existing axis, and take their input in
+# global coordinates whichever drawing they go on.
+@testset "overlays" begin
+    tab = synth_table(names=["q1", "b1"], kinds=["Quadrupole", "Bend"],
+                      lengths=[0.5, 1.0], x=[0.0, 0.0], z=[0.0, 0.5],
+                      theta=[0.0, 0.0], angle=[0.0, 0.2])
+    curve = [(0.0, 0.0, 0.0), (0.1, 0.2, 1.0), (0.0, 0.0, 2.0)]
+    wall = [(-2.0, 0.0, -1.0), (-2.0, 0.0, 3.0), (2.0, 0.0, 3.0)]
+
+    fp = floor_plot(tab)
+    n0 = length(fp.axis.scene.plots)
+    c = add_curve!(fp, curve; color=:orange)
+    w = add_wall!(fp, wall)
+    @test length(fp.axis.scene.plots) == n0 + 2
+    # Projected the way the plot was built: "zx" puts global z on the horizontal.
+    @test c[1][][2] ≈ Point2f(1.0, 0.1)
+
+    fp3 = floor_plot3(tab)
+    n3 = length(fp3.axis.scene.plots)
+    c3 = add_curve!(fp3, curve; color=:orange)
+    w3 = add_wall!(fp3, wall; base=-1.0, height=4.0)
+    @test length(fp3.axis.scene.plots) == n3 + 2
+    # "zxy" puts global z on the drawn x, global x on the drawn y, y up.
+    @test c3[1][][2] ≈ Point3f(1.0, 0.1, 0.2)
+    # The wall is a solid between base and base + height on the drawn vertical.
+    @test extrema(p -> p[3], w3[1][].position) == (-1.0f0, 3.0f0)
+
+    # Two-vectors are read as (x, z) on the y = 0 plane.
+    c2 = add_curve!(fp3, [(0.0, 0.0), (1.0, 5.0)])
+    @test c2[1][][2] ≈ Point3f(5.0, 1.0, 0.0)
+
+    # Both figures still render with the overlays on them.
+    @test length(unique(Makie.colorbuffer(fp.figure))) > 1
+    @test length(unique(Makie.colorbuffer(fp3.figure))) > 1
+end
+
+if isfile(BTA)
+    @testset "floor_plot3 from a real lattice" begin
+        lat = parse_and_expand_pals(BTA; problems=:none)
+        fp = floor_plot3(lat)
+        @test length(fp.table) > 100
+        @test length(fp.geometry.ele_center) == length(fp.table)
+        @test !isempty(fp.geometry.mesh_faces)
+
+        # The whole machine is a fixed number of plot objects, not one per
+        # element: that is what keeps a big lattice drawable.
+        @test length(fp.axis.scene.plots) < 10
+
+        # Picking maps a mesh vertex back to the element that owns it.
+        @test length(fp.geometry.vertex_ele) == length(fp.geometry.mesh_pts)
+        @test extrema(fp.geometry.vertex_ele) ⊆ 1:length(fp.table)
     end
 end

@@ -17,12 +17,17 @@ using Colors
 using Makie
 import PALSJulia as pj
 
-"Handle to a live floor-plan window: the figure, its axis, and the source data."
+"""
+Handle to a live floor-plan window: the figure, its axis, and the source data.
+`view` is the projection it was built with, kept so that overlays added later
+(see [`add_curve!`](@ref)) can be projected the same way.
+"""
 struct FloorPlot
   figure::Figure
   axis::Axis
   table::ElementTable
   geometry::FloorGeometry
+  view::String
   selected::Observable{Int}
 end
 
@@ -43,6 +48,27 @@ function _nearest(centers::Vector{Point2f}, p, rmax::Float64)
   end
   return best
 end
+
+# The parameter side-panel, in the figure's second column. Returns the Observable
+# holding its body text, which selection writes to. Shared by the 2D and 3D
+# plotters so the two windows list an element the same way.
+function _param_panel!(fig::Figure; width=340)
+  panel = fig[1, 2] = GridLayout(; tellheight=false)
+  colsize!(fig.layout, 2, Fixed(width))
+  Label(panel[1, 1], "Element parameters"; fontsize=14, font=:bold,
+        halign=:left, tellwidth=false)
+  info = Observable("Click an element to see its parameters.")
+  Label(panel[2, 1], info; halign=:left, valign=:top, justification=:left,
+        fontsize=11, tellheight=false, tellwidth=false, word_wrap=true)
+  return info
+end
+
+# What the panel shows for element `i`: its name, kind and branch, then its full
+# parameter tree.
+_info_text(tab::ElementTable, i::Int) =
+  string(tab.name[i], "  [", tab.kind[i], "]\n",
+         "branch: ", tab.branch_names[tab.branch[i]], "\n\n",
+         _node_text(tab.node[i]))
 
 # Multiline "key: value" dump of an element node, for the parameter panel.
 function _node_text(node::pj.YAMLNode)
@@ -186,13 +212,7 @@ function _floor_plot(tab::ElementTable, geom::FloorGeometry; view, title,
   lines!(ax, hi_pts; color=:red, linewidth=3)
 
   # Parameter side-panel.
-  panel = fig[1, 2] = GridLayout(; tellheight=false)
-  colsize!(fig.layout, 2, Fixed(340))
-  Label(panel[1, 1], "Element parameters"; fontsize=14, font=:bold,
-        halign=:left, tellwidth=false)
-  info = Observable("Click an element to see its parameters.")
-  Label(panel[2, 1], info; halign=:left, valign=:top, justification=:left,
-        fontsize=11, tellheight=false, tellwidth=false, word_wrap=true)
+  info = _param_panel!(fig)
 
   # Click-to-select. Going through the interaction system rather than raw
   # `mousebutton` events means Makie's mouse state machine has already sorted a
@@ -209,11 +229,9 @@ function _floor_plot(tab::ElementTable, geom::FloorGeometry; view, title,
     i = _nearest(geom.ele_center, event.data, 0.5 * lims.widths[1])
     i == 0 && return Consume(false)
     selected[] = i
-    info[] = string(tab.name[i], "  [", tab.kind[i], "]\n",
-                    "branch: ", tab.branch_names[tab.branch[i]], "\n\n",
-                    _node_text(tab.node[i]))
+    info[] = _info_text(tab, i)
     return Consume(true)
   end
 
-  return FloorPlot(fig, ax, tab, geom, selected)
+  return FloorPlot(fig, ax, tab, geom, String(view), selected)
 end
