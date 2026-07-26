@@ -7,19 +7,25 @@ built on [PALSJulia](https://github.com/pals-project/PALSJulia.jl) and
 [Makie](https://docs.makie.org/stable/).
 
 Given the expanded lattice from `PALSJulia.parse_and_expand_pals`, PALSPlot draws
-the machine projected onto a plane. Each element is rendered as a shape — sized,
+the machine either **projected onto a plane** (`floor_plot`) or as **solids in
+three dimensions** (`floor_plot3`). Each element is rendered as a shape — sized,
 colored and labeled by a [Tao](https://www.classe.cornell.edu/bmad/)-style rule
 table — placed and oriented from the floor coordinates the expander computes
 (the `full_expanded` view; see [Which expanded view](#which-expanded-view)).
-Bends follow their true arc. The window supports **pan**, **zoom**, and
+Bends follow their true arc. Both windows support **pan**, **zoom**, and
 **click-to-inspect**: click an element and its full parameter set is listed in a
 side panel.
 
+The two views are the same drawing. They share the shape table and the placement
+math, and the 3D drawing extrudes the very profile the floor plan strokes, so
+looking straight down at `floor_plot3` gives you `floor_plot`.
+
 It is designed to stay responsive on machines with tens of thousands of elements:
-the entire lattice is drawn with a handful of batched Makie calls (one for all
-element outlines, one for all interior strokes, one for the reference orbit, one
-for the labels) rather than one plot object per element, and element labels use
-level-of-detail so they appear only when the view is zoomed in far enough.
+the entire lattice is drawn with a handful of batched Makie calls (2D: one for
+all element outlines, one for all interior strokes, one for the reference orbit,
+one for the labels; 3D: one mesh for every solid in the machine) rather than one
+plot object per element, and element labels use level-of-detail so they appear
+only when the view is zoomed in far enough.
 
 ## Installation
 
@@ -64,6 +70,9 @@ using GLMakie
 lat = parse_and_expand_pals("machine.pals.yaml")
 fp  = floor_plot(lat)
 display(fp)              # opens an interactive window
+
+fp3 = floor_plot3(lat)   # ...or the same machine in 3D
+display(fp3)
 ```
 
 or, with no display available, render straight to a file:
@@ -73,24 +82,25 @@ using CairoMakie
 save("floor.pdf", floor_plot(lat).figure)
 ```
 
-or run the bundled example:
+or run the bundled examples:
 
 ```console
-julia --project=. examples/floor_plan.jl path/to/machine.pals.yaml
+julia --project=. examples/floor_plan.jl    path/to/machine.pals.yaml
+julia --project=. examples/floor_plan_3d.jl path/to/machine.pals.yaml
 ```
 
 **Controls**
 
-| gesture | action |
-|---|---|
-| scroll wheel | zoom in/out at the cursor |
-| **right-drag** | pan |
-| left-drag | rubber-band zoom to a rectangle |
-| `ctrl` + **left**-click | reset to the full view |
-| `ctrl` + `shift` + **left**-click | reset to limits recomputed from the data |
-| left-click (no modifier) | select an element (lists its parameters in the side panel) |
+| gesture | 2D (`floor_plot`) | 3D (`floor_plot3`) |
+|---|---|---|
+| scroll wheel | zoom in/out at the cursor | zoom |
+| left-drag | rubber-band zoom to a rectangle | orbit |
+| **right-drag** | pan | pan |
+| `ctrl` + **left**-click | reset to the full view | reset to the full view |
+| `ctrl` + `shift` + **left**-click | reset to limits recomputed from the data | — |
+| left-click (no modifier) | select an element (lists its parameters in the side panel) | same |
 
-Everything but selection is a Makie default `Axis` binding. Makie has no
+Everything but selection is a Makie default `Axis`/`Axis3` binding. Makie has no
 double-click binding, so **double-clicking does nothing** — `ctrl`-left-click is
 the reset.
 
@@ -150,8 +160,16 @@ hold, and anything else falls through to a small unlabeled box.
 
 Available shapes: `:box`, `:xbox`, `:x`, `:bow_tie`, `:rbow_tie`, `:diamond`,
 `:u_triangle`, `:d_triangle`, `:l_triangle`, `:r_triangle`, `:circle`, `:none`.
-`size` is the transverse half-height in meters; `label` is `:name`, `:s`, or
-`:none`. Pass `defaults=false` to `ShapeMap` to use only your own rules.
+`size` is the horizontal transverse half-height in meters; `label` is `:name`,
+`:s`, or `:none`. Pass `defaults=false` to `ShapeMap` to use only your own rules.
+
+The same table drives the 3D drawing, where each shape is the 2D profile
+extruded by `size2` — the vertical half-height, which defaults to `size` — either
+side of the centerline. So `:box` is a rectangular prism, `:xbox` the same with
+its X on the top and bottom faces, `:u_triangle` a triangular prism, and so on;
+`:circle`, which the floor plan draws as a disc at the element's midpoint, is a
+sphere, that being the solid whose silhouette is a disc from every direction and
+not only from above.
 
 Labels are drawn perpendicular to the centerline, running outward from the
 element, and tilted only within ±90° so none of them come out upside down.
@@ -173,6 +191,62 @@ horizontal screen axis, the second to the vertical. The default `"zx"` looks at
 the horizontal plane from above. The axis aspect ratio is kept 1:1 so the drawing
 is not distorted.
 
+`floor_plot3(lat; view="zxy")` takes the same string with a third character, the
+drawn vertical. The default `"zxy"` puts global `z` and `x` in the horizontal
+plane with the global vertical `y` up, so looking straight down at it reproduces
+the default floor plan. The aspect is `:data`, which is honest and, for a machine
+that lies flat, leaves the box a pancake with a lot of empty frame around it;
+`fp.axis.aspect[] = (1, 1, 0.4)` stretches the vertical if a diagram is what you
+are after.
+
+## 3D drawing
+
+```julia
+using GLMakie
+fp = floor_plot3(lat)
+display(fp)
+```
+
+GLMakie is the backend this is meant for. CairoMakie will render a 3D figure —
+the tests do — but it depth-sorts whole primitives rather than pixels, so a
+machine-sized mesh comes out with sorting artifacts. Use it for a quick still,
+not for looking at a machine.
+
+Two things work differently from the floor plan, both because a 3D view is not
+just a floor plan with an extra axis:
+
+* **Picking.** The floor plan finds the element nearest the cursor in data
+  coordinates; a 3D cursor is a ray, not a point. PALSPlot asks the backend to
+  pick first, which is exact and respects occlusion, and maps the picked mesh
+  vertex back to its element. Backends that cannot pick fall back to a
+  screen-space search along element centerlines, which needs no GPU — and so
+  works headless and in the tests — but has no notion of depth.
+* **Labels.** Text billboards toward the camera, so laying labels across the
+  centerline as the floor plan does means nothing here. Labels that would land on
+  top of each other are stacked *vertically* instead, and are culled harder: they
+  appear only once the view is zoomed in far enough and the element is inside the
+  current limits. A 3D view crowds much faster than a top-down one.
+
+## Overlays
+
+Two things can be drawn on either view, both taking their input in global
+coordinates and projecting it the way the plot they go on was built:
+
+```julia
+add_curve!(fp, orbit_points; color=:orange, linewidth=3)   # e.g. an orbit
+add_wall!(fp3, [(0, 0, -5), (0, 0, 120), (30, 0, 120)]; height=4)
+```
+
+`add_curve!` draws a polyline: points may be `(x, y, z)`, or `(x, z)` taken on
+the `y = 0` plane. It is what a reference- or measured-orbit overlay goes on;
+PALSPlot has no opinion about where the curve comes from, only about placing it
+in the same coordinates as the machine.
+
+`add_wall!` takes a building wall's footprint on the floor and a height. On a
+floor plan that is the footprint, a plain polyline — a plan does not show a wall's
+height. In 3D it is the wall, extruded and drawn translucent so the machine
+inside stays visible.
+
 ## Using from Python
 
 The Julia API is thin and callable from Python via
@@ -192,9 +266,10 @@ No backend is needed to extract a lattice, compute its geometry, or build the
 figure — only to put that figure somewhere:
 
 ```julia
-tab  = element_table(lat)                 # struct-of-arrays over every element
-geom = build_geometry(tab, ShapeMap())    # batched 2D draw data
-fig  = floor_plot(tab).figure             # a Makie Figure, undisplayed
+tab   = element_table(lat)                 # struct-of-arrays over every element
+geom  = build_geometry(tab, ShapeMap())    # batched 2D draw data
+geom3 = build_geometry3(tab, ShapeMap())   # batched 3D draw data
+fig   = floor_plot(tab).figure             # a Makie Figure, undisplayed
 ```
 
 With CairoMakie loaded that figure goes straight to a file, no display or OpenGL
@@ -205,28 +280,57 @@ using CairoMakie
 save("floor.pdf", fig)
 ```
 
+## How an element is placed
+
+Every element is placed from its own `FloorP` — position plus the three
+orientation angles — and the drawing is carried across it using the standard's
+orientation matrix `W = R_y(θ) R_x(φ) R_z(ψ)` (`coordinates.md`, Eq. www). Within
+an element the reference curve is propagated exactly the way the expander
+propagates it (`floor_propagate` with the `(L, S)` pair from `straight_LS` /
+`bend_LS` in pals-cpp's `pals_floor.cpp`), evaluated at an arbitrary fraction
+along rather than only at the far end.
+
+Following the expander's own construction is what makes the drawing agree with
+the lattice rather than merely resemble it: the far end of one element lands on
+the `FloorP` of the next, which is the one thing the expander pins down
+independently. That is checked in the tests to 1e-9 against `convert.pals.yaml`,
+which pitches, rolls and tilts.
+
+An earlier version built this frame from the heading `theta` alone, and so drew a
+lattice that left the horizontal plane as though it had not — a straight element
+came out at its full length instead of its projected length, overshooting by
+`L·(1 − cos φ)`. That is fixed, in both views.
+
+### A caveat on `tilt_ref`
+
+For a bend rolled out of its branch's `x`–`z` plane, the standard states the
+bend's coordinate rotation twice and the two statements disagree:
+
+* Eq. `ustt` gives it as an axis and angle, `u = (−sin θ_tr, −cos θ_tr, 0)`;
+* Eq. `srrr` gives it as `S = R_z(θ_tr) R_y(−α_b) R_z(−θ_tr)`.
+
+These are different rotations — the sign of `u`'s first component differs — and
+only the second is consistent with the displacement in Eq. `lrztt`, which is
+`R_z(θ_tr)·L̃`, the untilted bend turned bodily about `z`. Under Eq. `ustt` the
+frame's `z` axis comes off the tangent to the arc it is travelling along, by
+about `2·sin(α_b)·sin(θ_tr)`.
+
+pals-cpp's `bend_LS` implements Eq. `ustt`, and **PALSPlot follows it**: drawing
+the other convention would open a visible gap at every tilted bend, at whose exit
+face the expander has already written the next element's `FloorP`. The tests pin
+the convention down explicitly, so if pals-cpp switches they fail there and say
+why rather than turning into a mystery about the drawing.
+
+Separately, a `Patch` is drawn as a straight segment of its length: its body does
+not follow the jump its offsets and rotations describe. Nothing else is affected,
+since every element — the ones after a patch included — is placed from its own
+`FloorP` rather than chained off its neighbour.
+
 ## Status
 
-Initial development. 2D floor plans with pan/zoom, click-to-inspect, Tao-style
-shape mapping, and curved bends are working. Planned: 3D views, building-wall
-overlays, and reference-orbit overlays.
-
-Known gap: **a reference curve that leaves the projection plane is drawn as
-though it did not.** Every element is placed exactly, from its own `FloorP`, but
-the frame the drawing is carried across it on is built from the heading `theta`
-alone — `FloorP.phi` and `FloorP.psi` are ignored, as is `BendP.tilt_ref`. So on
-a lattice that stays in the plane the drawing closes on the expander's floor
-coordinates to rounding (checked in the tests against `bta.pals.yaml`), while on
-one that does not:
-
-* a straight element is drawn at its full length rather than its projected
-  length, overshooting by `L·(1 − cos φ)` — 0.25 m on a 1.3 m cavity at
-  `phi = −0.63` in `convert.pals.yaml`;
-* a bend with a non-zero `tilt_ref` gets the right endpoints and the wrong arc
-  between them.
-
-Both fall out of building the frame from the standard's W matrix
-(`pals_floor.h`, Eq. www) rather than from `theta`.
+Initial development. Working: 2D floor plans and 3D drawings, both with
+pan/zoom/orbit, click-to-inspect, Tao-style shape mapping, curved bends, lattices
+that leave the horizontal plane, and building-wall and orbit overlays.
 
 ## Testing
 
@@ -247,8 +351,10 @@ headless macOS runner cannot give GLMakie an OpenGL context at all — GLMakie w
 not even precompile there, since its precompile workload opens a GLFW window.
 
 GLMakie is what you actually open a window with, so it is covered separately by
-`test/glmakie_smoke.jl`, which CI runs on Linux under `xvfb-run`. To run it
-yourself, in an environment with GLMakie added:
+`test/glmakie_smoke.jl`, which CI runs on Linux under `xvfb-run`. That is also
+the only place GPU picking can be exercised: it reads a framebuffer, which is the
+one thing a software backend has not got. To run it yourself, in an environment
+with GLMakie added:
 
 ```console
 julia --project=. test/glmakie_smoke.jl

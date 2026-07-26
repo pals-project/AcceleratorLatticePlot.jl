@@ -14,18 +14,30 @@ const SHAPE_NAMES = (:box, :xbox, :x, :bow_tie, :rbow_tie, :diamond,
                      :u_triangle, :d_triangle, :l_triangle, :r_triangle,
                      :circle, :none)
 
-"How to draw one element. `size` is the transverse half-height in meters."
+"""
+How to draw one element.
+
+`size` is the horizontal transverse half-height in meters and `size2` the
+vertical one: the 2D drawing is a profile in the plane of `size`, and the 3D
+drawing extrudes that same profile by `size2` either side of the centerline, so
+one table serves both views. `size2` defaults to `size`, making an element square
+in cross-section.
+"""
 struct ShapeSpec
   shape::Symbol
   color::Colorant
   size::Float64
+  size2::Float64
   label::Symbol       # :name, :none, or :s
   draw::Bool
   line_width::Float64
 end
 
-ShapeSpec(shape, color; size=0.5, label=:name, draw=true, line_width=1.5) =
-  ShapeSpec(shape, parse(Colorant, string(color)), size, Symbol(label), draw, Float64(line_width))
+ShapeSpec(shape, color; size=0.5, size2=nothing, label=:name, draw=true,
+          line_width=1.5) =
+  ShapeSpec(shape, parse(Colorant, string(color)), size,
+            size2 === nothing ? Float64(size) : Float64(size2),
+            Symbol(label), draw, Float64(line_width))
 
 "One match rule: element class (or `*`) plus a name glob, mapped to a `ShapeSpec`."
 struct ShapeRule
@@ -35,10 +47,12 @@ struct ShapeRule
 end
 
 """
-    ele_shape(ele_id, shape, color; size, label, draw, line_width) -> ShapeRule
+    ele_shape(ele_id, shape, color; size, size2, label, draw, line_width) -> ShapeRule
 
 Build a shape rule. `ele_id` is `"<class>::<name-glob>"` (e.g. `"Quadrupole::q*"`)
 or just `"<class>"` (implying `::*`). `"*"` for the class matches any class.
+`size2` sets the vertical half-height used by the 3D drawing, and defaults to
+`size`.
 """
 function ele_shape(ele_id::AbstractString, shape, color; kwargs...)
   class, glob = occursin("::", ele_id) ? split(ele_id, "::"; limit=2) : (ele_id, "*")
@@ -90,7 +104,7 @@ function mapshape(m::ShapeMap, kind::AbstractString, name::AbstractString)
     _class_matches(r.class, kind) || continue
     (r.glob == "*" || occursin(rx, name)) && return r.spec
   end
-  return ShapeSpec(:box, colorant"gray50", 0.3, :none, true, 1.0)
+  return ShapeSpec(:box, colorant"gray50", 0.3, 0.3, :none, true, 1.0)
 end
 
 """

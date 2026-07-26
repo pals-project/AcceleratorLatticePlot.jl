@@ -15,7 +15,7 @@
 #               - <ele-name>:    # kind: Quadrupole, Bend, Drift, ...
 #                   length: ...
 #                   FloorP: {x, y, z, theta, phi, psi}   # UPSTREAM (entrance) end
-#                   BendP:  {angle_ref, ...}             # bends only
+#                   BendP:  {angle_ref, tilt_ref, ...}   # bends only
 #                   s_position: ...
 #               - branch_end:    # kind: Placeholder, appended by the bookkeeper
 #                   FloorP: ...  # the downstream end of the last element
@@ -37,23 +37,48 @@ Flat, struct-of-arrays view of every lattice element in an expanded lattice.
 Field `i` of each vector describes the same element. `node[i]` is the element's
 `YAMLNode`, kept so the GUI can display its parameters.
 
-`FloorP` values are the element's **upstream (entrance)** end in the Bmad global
-reference system `(x, y, z)` with heading `theta` (rotation about the vertical
-`y` axis). `angle` is the total bend angle in radians (0 for straight elements).
+`FloorP` values are the element's **upstream (entrance)** end in the global
+reference system: position `(x, y, z)` and the three orientation angles `theta`
+(azimuth), `phi` (pitch) and `psi` (roll), which together give the orientation
+matrix `W = R_y(theta) R_x(phi) R_z(psi)` (see [`w_matrix`](@ref)). `angle` is
+the total reference bend angle in radians (0 for straight elements) and
+`tilt_ref` the bend's reference tilt, which rolls its bend plane.
+
+All six placement quantities are needed to draw a lattice that leaves the
+horizontal plane; a lattice that stays in it has `phi = psi = tilt_ref = 0`
+throughout.
 """
 struct ElementTable
   name::Vector{String}
   kind::Vector{String}
   length::Vector{Float64}
-  x::Vector{Float64}       # global floor coordinates at the entrance end
+  x::Vector{Float64}         # global floor coordinates at the entrance end
   y::Vector{Float64}
   z::Vector{Float64}
-  theta::Vector{Float64}   # heading: rotation about the vertical (y) axis
-  angle::Vector{Float64}   # total bend angle (rad); 0 when straight
-  s::Vector{Float64}       # longitudinal s position
-  branch::Vector{Int}      # 1-based index into `branch_names`
+  theta::Vector{Float64}     # orientation angles at the entrance end: azimuth,
+  phi::Vector{Float64}       # pitch,
+  psi::Vector{Float64}       # roll
+  angle::Vector{Float64}     # total reference bend angle (rad); 0 when straight
+  tilt_ref::Vector{Float64}  # bend reference tilt (rad); rolls the bend plane
+  s::Vector{Float64}         # longitudinal s position
+  branch::Vector{Int}        # 1-based index into `branch_names`
   node::Vector{pj.YAMLNode}
   branch_names::Vector{String}
+end
+
+"""
+    ElementTable(name, kind, length, x, y, z, theta, angle, s, branch, node,
+                 branch_names)
+
+Build a table for a lattice that lies in the horizontal plane, taking
+`phi = psi = tilt_ref = 0`. Convenient for synthesizing a table by hand; the
+extraction path fills in all of them.
+"""
+function ElementTable(name, kind, len, x, y, z, theta, angle, s, branch, node,
+                      branch_names)
+  n = Base.length(name)
+  return ElementTable(name, kind, len, x, y, z, theta, zeros(n), zeros(n),
+                      angle, zeros(n), s, branch, node, branch_names)
 end
 
 Base.length(t::ElementTable) = length(t.name)
@@ -113,7 +138,8 @@ is everything the drawing is placed from.
 function element_table(lat::pj.Lattices)
   name = String[]; kind = String[]; len = Float64[]
   x = Float64[]; y = Float64[]; z = Float64[]
-  theta = Float64[]; angle = Float64[]; s = Float64[]
+  theta = Float64[]; phi = Float64[]; psi = Float64[]
+  angle = Float64[]; tilt = Float64[]; s = Float64[]
   branch = Int[]; node = pj.YAMLNode[]; bnames = String[]
 
   for latnode in _lattices(lat.full_expanded)
@@ -136,23 +162,30 @@ function element_table(lat::pj.Lattices)
         fp = emap["FloorP"]
         push!(name, ename); push!(kind, ekind); push!(len, L)
         push!(x, _num(fp, "x")); push!(y, _num(fp, "y")); push!(z, _num(fp, "z"))
+        # All three orientation angles: `theta` alone places only a lattice that
+        # stays in the horizontal plane.
         push!(theta, _num(fp, "theta"))
+        push!(phi, _num(fp, "phi"))
+        push!(psi, _num(fp, "psi"))
         push!(s, _num(emap, "s_position"))
         push!(branch, bidx); push!(node, emap)
 
-        # Bend angle, read the way the expander's own floor propagation reads it
-        # (`element_LS` in pals_expand.cpp): `angle_ref`, which the bookkeeper
-        # derives from whichever pair of curvature/length/chord the author gave,
-        # falling back to g_ref * length for a bend it could not reduce.
-        a = 0.0
+        # Bend angle and tilt, read the way the expander's own floor propagation
+        # reads them (`element_LS` in pals_expand.cpp): `angle_ref`, which the
+        # bookkeeper derives from whichever pair of curvature/length/chord the
+        # author gave, falling back to g_ref * length for a bend it could not
+        # reduce, and `tilt_ref`, which rolls the plane the arc bends in.
+        a = 0.0; tl = 0.0
         if pj.haskey(emap, "BendP")
           bp = emap["BendP"]
           a = pj.haskey(bp, "angle_ref") ? _num(bp, "angle_ref") : _num(bp, "g_ref") * L
+          tl = _num(bp, "tilt_ref")
         end
-        push!(angle, a)
+        push!(angle, a); push!(tilt, tl)
       end
     end
   end
 
-  return ElementTable(name, kind, len, x, y, z, theta, angle, s, branch, node, bnames)
+  return ElementTable(name, kind, len, x, y, z, theta, phi, psi, angle, tilt, s,
+                      branch, node, bnames)
 end

@@ -9,8 +9,10 @@
 #
 # Each element's shape is defined by a template in normalized coordinates
 # `(f, w)` with `f in [0,1]` along the element length and `w in [-1,1]`
-# transverse. The template is mapped through the element's (possibly curved)
-# centerline, so bends automatically follow their arc.
+# transverse. The template is swept along the element's reference curve using the
+# placement math in frame.jl, so bends automatically follow their arc -- and a
+# lattice that leaves the horizontal plane is drawn as its true projection onto
+# the chosen plane rather than as though it stayed in it.
 
 using GeometryBasics: Point2f
 using Colors
@@ -39,94 +41,82 @@ struct FloorGeometry
   ele_center::Vector{Point2f}       # projected element midpoint (for picking)
 end
 
-# ── projection ────────────────────────────────────────────────────────────────
-# `view` is a two-character plane like "zx": first char -> horizontal axis,
-# second -> vertical, each one of 'x','y','z' in the global reference system.
-
-_axis(c::Char, x, y, z) = c == 'x' ? x : c == 'y' ? y : z
-
-# Projected element frame: the forward direction ĝ and the transverse direction
-# n̂, for an element whose entrance heading is `th`.
+# ── shape templates ───────────────────────────────────────────────────────────
+# A template is a profile in normalized (f, w) coordinates: `f in [0,1]` along
+# the element length, `w in [-1,1]` transverse. It carries three things:
 #
-# Both are the *branch axes* projected through the view, not one derived from the
-# other by rotating 90° in the picture plane: which way that rotation points
-# depends on the handedness of the axis pair, so "zx" and "xz" -- the same plane
-# seen with the screen axes swapped -- would get opposite transverse directions,
-# and a bend would curve the wrong way in one of them.
+#   * `loops` -- closed outlines, what the 2D drawing strokes and what the 3D
+#     drawing raises side walls along;
+#   * `segs`  -- independent interior strokes (the X of an `xbox`);
+#   * `faces` -- *convex* polygons tiling the same profile, which the 3D drawing
+#     uses to cap the extruded solid.
 #
-# ĝ is the branch z axis (sinθ, 0, cosθ) and n̂ the branch x axis
-# (cosθ, 0, -sinθ). Only the heading θ is used; `phi` and `psi` are ignored, so a
-# reference curve pitched or rolled out of the picture plane is drawn in it (see
-# the known gap in the README).
-@inline function _frame(a::Char, b::Char, th)
-  s, c = sin(th), cos(th)
-  gx = _axis(a, s, 0.0, c);  gy = _axis(b, s, 0.0, c)
-  nx = _axis(a, c, 0.0, -s); ny = _axis(b, c, 0.0, -s)
-  gn = hypot(gx, gy); gn > 0 && (gx /= gn; gy /= gn)
-  nn = hypot(nx, ny); nn > 0 && (nx /= nn; ny /= nn)
-  return gx, gy, nx, ny
+# `faces` are given per shape rather than triangulated on the fly because two of
+# the profiles (`bow_tie` and `rbow_tie`) are self-intersecting, so no fan from a
+# centroid tiles them: each is two triangles meeting at the crossing point, which
+# is what is written out below.
+
+struct ShapeTemplate
+  loops::Vector{Vector{Tuple{Float64,Float64}}}
+  segs::Vector{NTuple{2,NTuple{2,Float64}}}
+  faces::Vector{Vector{Tuple{Float64,Float64}}}
 end
 
-# ── shape templates ───────────────────────────────────────────────────────────
-# Each returns (loops, segs) in normalized (f, w) coordinates. `loops` are closed
-# outlines; `segs` are independent strokes drawn inside/around the element.
+const _NOSEG = NTuple{2,NTuple{2,Float64}}[]
+const _NOFACE = Vector{Tuple{Float64,Float64}}[]
 
 function _template(shape::Symbol)
   box = [(0.0, -1.0), (1.0, -1.0), (1.0, 1.0), (0.0, 1.0), (0.0, -1.0)]
-  X   = [((0.0, -1.0), (1.0, 1.0)), ((0.0, 1.0), (1.0, -1.0))]
+  boxface = [[(0.0, -1.0), (1.0, -1.0), (1.0, 1.0), (0.0, 1.0)]]
+  X = [((0.0, -1.0), (1.0, 1.0)), ((0.0, 1.0), (1.0, -1.0))]
   if shape === :box
-    return ([box], NTuple{2,NTuple{2,Float64}}[])
+    return ShapeTemplate([box], _NOSEG, boxface)
   elseif shape === :xbox
-    return ([box], X)
+    return ShapeTemplate([box], X, boxface)
   elseif shape === :x
-    return (Vector{Tuple{Float64,Float64}}[], X)
+    return ShapeTemplate(Vector{Tuple{Float64,Float64}}[], X, _NOFACE)
   elseif shape === :diamond
-    return ([[(0.0, 0.0), (0.5, -1.0), (1.0, 0.0), (0.5, 1.0), (0.0, 0.0)]],
-            NTuple{2,NTuple{2,Float64}}[])
+    return ShapeTemplate([[(0.0, 0.0), (0.5, -1.0), (1.0, 0.0), (0.5, 1.0), (0.0, 0.0)]],
+                         _NOSEG,
+                         [[(0.0, 0.0), (0.5, -1.0), (1.0, 0.0), (0.5, 1.0)]])
   elseif shape === :bow_tie
-    return ([[(0.0, -1.0), (1.0, 1.0), (1.0, -1.0), (0.0, 1.0), (0.0, -1.0)]],
-            NTuple{2,NTuple{2,Float64}}[])
+    # The two diagonals cross at (0.5, 0), leaving a triangle on each end.
+    return ShapeTemplate([[(0.0, -1.0), (1.0, 1.0), (1.0, -1.0), (0.0, 1.0), (0.0, -1.0)]],
+                         _NOSEG,
+                         [[(0.0, -1.0), (0.5, 0.0), (0.0, 1.0)],
+                          [(1.0, -1.0), (0.5, 0.0), (1.0, 1.0)]])
   elseif shape === :rbow_tie
-    return ([[(0.0, -1.0), (1.0, -1.0), (0.0, 1.0), (1.0, 1.0), (0.0, -1.0)]],
-            NTuple{2,NTuple{2,Float64}}[])
+    # Same crossing, but the untouched pair of edges is top and bottom.
+    return ShapeTemplate([[(0.0, -1.0), (1.0, -1.0), (0.0, 1.0), (1.0, 1.0), (0.0, -1.0)]],
+                         _NOSEG,
+                         [[(0.0, -1.0), (1.0, -1.0), (0.5, 0.0)],
+                          [(0.0, 1.0), (1.0, 1.0), (0.5, 0.0)]])
   elseif shape === :u_triangle
-    return ([[(0.0, -1.0), (1.0, -1.0), (0.5, 1.0), (0.0, -1.0)]],
-            NTuple{2,NTuple{2,Float64}}[])
+    return ShapeTemplate([[(0.0, -1.0), (1.0, -1.0), (0.5, 1.0), (0.0, -1.0)]],
+                         _NOSEG, [[(0.0, -1.0), (1.0, -1.0), (0.5, 1.0)]])
   elseif shape === :d_triangle
-    return ([[(0.0, 1.0), (1.0, 1.0), (0.5, -1.0), (0.0, 1.0)]],
-            NTuple{2,NTuple{2,Float64}}[])
+    return ShapeTemplate([[(0.0, 1.0), (1.0, 1.0), (0.5, -1.0), (0.0, 1.0)]],
+                         _NOSEG, [[(0.0, 1.0), (1.0, 1.0), (0.5, -1.0)]])
   elseif shape === :r_triangle
-    return ([[(0.0, -1.0), (1.0, 0.0), (0.0, 1.0), (0.0, -1.0)]],
-            NTuple{2,NTuple{2,Float64}}[])
+    return ShapeTemplate([[(0.0, -1.0), (1.0, 0.0), (0.0, 1.0), (0.0, -1.0)]],
+                         _NOSEG, [[(0.0, -1.0), (1.0, 0.0), (0.0, 1.0)]])
   elseif shape === :l_triangle
-    return ([[(1.0, -1.0), (0.0, 0.0), (1.0, 1.0), (1.0, -1.0)]],
-            NTuple{2,NTuple{2,Float64}}[])
+    return ShapeTemplate([[(1.0, -1.0), (0.0, 0.0), (1.0, 1.0), (1.0, -1.0)]],
+                         _NOSEG, [[(1.0, -1.0), (0.0, 0.0), (1.0, 1.0)]])
   else  # :circle and :none handled specially by the caller
-    return (Vector{Tuple{Float64,Float64}}[], NTuple{2,NTuple{2,Float64}}[])
+    return ShapeTemplate(Vector{Tuple{Float64,Float64}}[], _NOSEG, _NOFACE)
   end
 end
 
-# ── centerline of one element ─────────────────────────────────────────────────
-# Given the projected entrance point, projected heading unit vectors ĝ (forward)
-# and n̂ (transverse), length L and bend angle, return position + transverse unit
-# normal at length fraction `f`. Straight elements have a constant normal; bends
-# rotate the normal along the arc.
+# ── projected centerline of one element ───────────────────────────────────────
+# Position and transverse direction at length fraction `f`, both projected onto
+# the view plane. The transverse direction is deliberately *not* renormalized
+# after projection: an element tilted out of the picture plane must come out
+# foreshortened, which is exactly the length the projection of its own frame has.
 
-@inline function _centerline_at(P0::Point2f, gx, gy, nx, ny, L, ang, f)
-  if abs(ang) < 1e-9
-    p = Point2f(P0[1] + f * L * gx, P0[2] + f * L * gy)
-    return p, (nx, ny)
-  end
-  rho = L / ang
-  t = f * ang
-  st, ct = sin(t), cos(t)
-  lo = rho * st            # longitudinal offset along ĝ
-  tr = rho * (ct - 1)      # transverse offset along n̂
-  p = Point2f(P0[1] + lo * gx + tr * nx, P0[2] + lo * gy + tr * ny)
-  # normal rotates by t: n(f) = sin(t)·ĝ + cos(t)·n̂
-  nnx = st * gx + ct * nx
-  nny = st * gy + ct * ny
-  return p, (nnx, nny)
+@inline function _at2(a::Char, b::Char, e::Placement, L, ang, tilt, f)
+  pl = place(e.r, e.W, L, ang, tilt, f)
+  return proj2(a, b, pl.r), proj2(a, b, xaxis(pl.W))
 end
 
 # ── label collisions ──────────────────────────────────────────────────────────
@@ -189,15 +179,15 @@ function build_geometry(tab::ElementTable, smap::ShapeMap;
   label_h = Float32[]      # each label's element half-height; collision scale
   ele_center = Vector{Point2f}(undef, length(tab))
 
-  # Emit a normalized closed loop mapped through element i's centerline. Edges
+  # Emit a normalized closed loop swept along element i's reference curve. Edges
   # that span a range of `f` on a curved element are subdivided so the outline
   # follows the arc rather than cutting across it as a chord.
-  function emit_loop!(loop, P0, gx, gy, nx, ny, L, ang, h, col, wid)
+  function emit_loop!(loop, e, L, ang, tilt, h, col, wid)
     isempty(loop) && return
     curved = abs(ang) > 1e-9
     push_pt(f, w) = begin
-      c, (nnx, nny) = _centerline_at(P0, gx, gy, nx, ny, L, ang, f)
-      push!(outline_pts, Point2f(c[1] + w * h * nnx, c[2] + w * h * nny))
+      c, n = _at2(a, b, e, L, ang, tilt, f)
+      push!(outline_pts, Point2f(c[1] + w * h * n[1], c[2] + w * h * n[2]))
       push!(outline_col, col); push!(outline_wid, wid)
     end
     m = length(loop)
@@ -213,25 +203,24 @@ function build_geometry(tab::ElementTable, smap::ShapeMap;
     push!(outline_pts, _NAN2); push!(outline_col, col); push!(outline_wid, wid)
   end
 
-  function emit_seg!(seg, P0, gx, gy, nx, ny, L, ang, h, col)
-    for pt in seg
-      f, w = pt
-      c, (nnx, nny) = _centerline_at(P0, gx, gy, nx, ny, L, ang, f)
-      push!(seg_pts, Point2f(c[1] + w * h * nnx, c[2] + w * h * nny))
+  function emit_seg!(seg, e, L, ang, tilt, h, col)
+    for (f, w) in seg
+      c, n = _at2(a, b, e, L, ang, tilt, f)
+      push!(seg_pts, Point2f(c[1] + w * h * n[1], c[2] + w * h * n[2]))
       push!(seg_col, col)
     end
   end
 
   prev_branch = 0
   for i in 1:length(tab)
-    xi, yi, zi = tab.x[i], tab.y[i], tab.z[i]
-    th = tab.theta[i]; L = tab.length[i]; ang = tab.angle[i]
+    L = tab.length[i]; ang = tab.angle[i]; tilt = tab.tilt_ref[i]
+    e = entrance(tab, i)
 
-    P0 = Point2f(_axis(a, xi, yi, zi), _axis(b, xi, yi, zi))
-    gx, gy, nx, ny = _frame(a, b, th)
-
-    # centerline midpoint (for picking + label anchor)
-    cmid, (mnx, mny) = _centerline_at(P0, gx, gy, nx, ny, L, ang, 0.5)
+    # Centerline midpoint (for picking + label anchor), and the *unit* projected
+    # transverse direction there, which is what a label is laid out along.
+    mid = place(e.r, e.W, L, ang, tilt, 0.5)
+    cmid = proj2(a, b, mid.r)
+    _, _, mnx, mny = proj_axes(a, b, mid.W)
     ele_center[i] = cmid
 
     # reference orbit: break the polyline between branches
@@ -241,7 +230,7 @@ function build_geometry(tab::ElementTable, smap::ShapeMap;
     prev_branch = tab.branch[i]
     nsamp = max(2, ceil(Int, abs(ang) / arc_tol) + 1)
     for k in 0:(nsamp - 1)
-      c, _ = _centerline_at(P0, gx, gy, nx, ny, L, ang, k / (nsamp - 1))
+      c, _ = _at2(a, b, e, L, ang, tilt, k / (nsamp - 1))
       push!(ref_pts, c)
     end
 
@@ -251,7 +240,6 @@ function build_geometry(tab::ElementTable, smap::ShapeMap;
     h = Float32(spec.size); wid = Float32(spec.line_width)
 
     if spec.shape === :circle
-      loop = Vector{Tuple{Float64,Float64}}(undef, circle_sides + 1)
       for k in 0:circle_sides
         φ = 2π * k / circle_sides
         push!(outline_pts, Point2f(cmid[1] + h * cos(φ), cmid[2] + h * sin(φ)))
@@ -259,12 +247,12 @@ function build_geometry(tab::ElementTable, smap::ShapeMap;
       end
       push!(outline_pts, _NAN2); push!(outline_col, col); push!(outline_wid, wid)
     else
-      loops, segs = _template(spec.shape)
-      for lp in loops
-        emit_loop!(lp, P0, gx, gy, nx, ny, L, ang, h, col, wid)
+      tpl = _template(spec.shape)
+      for lp in tpl.loops
+        emit_loop!(lp, e, L, ang, tilt, h, col, wid)
       end
-      for sg in segs
-        emit_seg!(sg, P0, gx, gy, nx, ny, L, ang, h, col)
+      for sg in tpl.segs
+        emit_seg!(sg, e, L, ang, tilt, h, col)
       end
     end
 
@@ -308,19 +296,16 @@ coordinates.
 function element_outline(tab::ElementTable, i::Int; view::AbstractString="zx",
                          pad::Real=1.15, arc_tol::Real=0.08, minsize::Real=0.3)
   a, b = view[1], view[2]
-  xi, yi, zi = tab.x[i], tab.y[i], tab.z[i]
-  th = tab.theta[i]; L = tab.length[i]; ang = tab.angle[i]
-  P0 = Point2f(_axis(a, xi, yi, zi), _axis(b, xi, yi, zi))
-  gx, gy, nx, ny = _frame(a, b, th)
+  L = tab.length[i]; ang = tab.angle[i]; tilt = tab.tilt_ref[i]
+  e = entrance(tab, i)
   h = Float32(max(minsize, 0.3) * pad)
 
   nsamp = max(2, ceil(Int, abs(ang) / arc_tol) + 1)
   top = Point2f[]; bot = Point2f[]
   for k in 0:(nsamp - 1)
-    f = k / (nsamp - 1)
-    c, (nnx, nny) = _centerline_at(P0, gx, gy, nx, ny, L, ang, f)
-    push!(top, Point2f(c[1] + h * nnx, c[2] + h * nny))
-    push!(bot, Point2f(c[1] - h * nnx, c[2] - h * nny))
+    c, n = _at2(a, b, e, L, ang, tilt, k / (nsamp - 1))
+    push!(top, Point2f(c[1] + h * n[1], c[2] + h * n[2]))
+    push!(bot, Point2f(c[1] - h * n[1], c[2] - h * n[2]))
   end
   return vcat(top, reverse(bot), top[1:1])
 end
