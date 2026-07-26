@@ -7,7 +7,8 @@ built on [PALSJulia](https://github.com/pals-project/PALSJulia.jl) and
 Given the expanded lattice from `PALSJulia.parse_and_expand_pals`, PALSPlot draws
 the machine projected onto a plane. Each element is rendered as a shape — sized,
 colored and labeled by a [Tao](https://www.classe.cornell.edu/bmad/)-style rule
-table — placed and oriented from the floor coordinates the expander computes.
+table — placed and oriented from the floor coordinates the expander computes
+(the `full_expanded` view; see [Which expanded view](#which-expanded-view)).
 Bends follow their true arc. The window supports **pan**, **zoom**, and
 **click-to-inspect**: click an element and its full parameter set is listed in a
 side panel.
@@ -64,6 +65,20 @@ julia --project=. examples/floor_plan.jl path/to/machine.pals.yaml
 | double-click | reset to the full view |
 | left-click | select an element (lists its parameters in the side panel) |
 
+### Which expanded view
+
+`parse_and_expand_pals` returns the expanded lattice twice. PALSPlot reads
+**`lat.full_expanded`**, the view in which the expander has computed every
+dependent parameter: each element's `FloorP` (position and orientation at its
+upstream end), its `s_position`, and — for a bend — the `BendP.angle_ref` the
+arc is drawn from. `lat.expanded` holds the same lattice pruned back to what the
+author wrote, so none of that is in it and nothing could be placed.
+
+`full_expanded` also caps each branch with a zero-length `branch_end`
+`Placeholder` holding the downstream end of the last element. It appears in the
+element table like any other element; the default shape table draws it as bare
+centerline.
+
 ### Build pals-cpp against libc++
 
 PALSPlot needs the pals-cpp C library to be built with the **same C++ runtime as
@@ -93,11 +108,16 @@ element matches wins, with a built-in default table appended:
 ```julia
 shapes = ShapeMap([
     ele_shape("Quadrupole::q*", :xbox,   :black; size=0.6, label=:name),
-    ele_shape("SBend",          :box,    :blue;  size=0.5),
+    ele_shape("Bend",           :box,    :blue;  size=0.5),
     ele_shape("Wiggler",        :box,    :green; size=0.5),
 ])
 floor_plot(lat; shapes=shapes)
 ```
+
+The class is a PALS element kind (`Bend`, `Quadrupole`, `RFCavity`, `Fork`, …
+from the standard's `lattice-element-kinds.md`), matched case-insensitively;
+`"*"` matches any kind. The built-in table covers every kind a beam line can
+hold, and anything else falls through to a small unlabeled box.
 
 Available shapes: `:box`, `:xbox`, `:x`, `:bow_tie`, `:rbow_tie`, `:diamond`,
 `:u_triangle`, `:d_triangle`, `:l_triangle`, `:r_triangle`, `:circle`, `:none`.
@@ -140,3 +160,9 @@ geom = build_geometry(tab, ShapeMap())    # batched 2D draw data
 Initial development. 2D floor plans with pan/zoom, click-to-inspect, Tao-style
 shape mapping, and curved bends are working. Planned: 3D views, building-wall
 overlays, and reference-orbit overlays.
+
+Known gap: every element is placed exactly, from its own `FloorP`, but the
+*within-element* curve of a bend is drawn in the projection plane from the
+heading `theta` alone. A bend with a non-zero `BendP.tilt_ref` — one that bends
+out of that plane — therefore has the right endpoints but the wrong arc between
+them.

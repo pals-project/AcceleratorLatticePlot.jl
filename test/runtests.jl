@@ -33,12 +33,28 @@ end
 @testset "default shape map" begin
     m = ShapeMap()
     @test mapshape(m, "Quadrupole", "q1").shape == :xbox
-    @test mapshape(m, "SBend", "b1").shape == :box
+    @test mapshape(m, "Bend", "b1").shape == :box
     @test mapshape(m, "Sextupole", "s1").shape == :box
     @test mapshape(m, "Drift", "d1").shape == :none
     # unknown kind falls through to the "*" default
     @test mapshape(m, "Wibbler", "w1").shape == :box
     @test mapshape(m, "Wibbler", "w1").label == :none
+end
+
+# Every kind a beam line can hold should be in the table rather than reaching the
+# "*" fallback, so a kind renamed in the standard shows up here as a failure.
+@testset "default table covers the PALS element kinds" begin
+    m = ShapeMap()
+    kinds = ["ACKicker", "BeamBeam", "BeginningEle", "Bend", "Converter",
+             "CrabCavity", "Drift", "EGun", "Fiducial", "FloorShift", "Foil",
+             "Fork", "Instrument", "Kicker", "Marker", "Mask", "Match",
+             "Multipole", "Octupole", "Patch", "Placeholder", "Quadrupole",
+             "ReferenceChange", "RFCavity", "Sextupole", "Solenoid", "Taylor",
+             "UnionEle", "Wiggler"]
+    fallback = mapshape(m, "Wibbler", "w1")
+    for k in kinds
+        @test mapshape(m, k, "e1") !== fallback
+    end
 end
 
 @testset "rule precedence and globbing" begin
@@ -76,11 +92,11 @@ end
 
 @testset "geometry: bend follows an arc" begin
     straight = pp.build_geometry(
-        synth_table(names=["b"], kinds=["SBend"], lengths=[1.0],
+        synth_table(names=["b"], kinds=["Bend"], lengths=[1.0],
                     x=[0.0], z=[0.0], theta=[0.0], angle=[0.0]),
         ShapeMap(); view="zx")
     bent = pp.build_geometry(
-        synth_table(names=["b"], kinds=["SBend"], lengths=[1.0],
+        synth_table(names=["b"], kinds=["Bend"], lengths=[1.0],
                     x=[0.0], z=[0.0], theta=[0.0], angle=[0.6]),
         ShapeMap(); view="zx")
     # subdividing the arc yields more outline vertices than the straight chord
@@ -109,7 +125,32 @@ if isfile(CONVERT)
         i = findfirst(==("drift1"), tab.name)
         @test isapprox(tab.length[i], 100.0; atol=1e-6)   # length: 1e+02
         @test tab.z[end] > tab.z[1]                        # positions advance
-        @test "SBend" in tab.kind
+        @test "Bend" in tab.kind
+
+        # The bookkeeper caps each branch with a zero-length `branch_end`
+        # Placeholder carrying the downstream end of the last real element.
+        @test tab.name[end] == "branch_end"
+        @test tab.kind[end] == "Placeholder"
+        @test tab.s[end] > tab.s[1]
+
+        # The bend angle comes from BendP.angle_ref, which the bookkeeper
+        # derives; it must agree with g_ref * length.
+        b = findfirst(==("Bend"), tab.kind)
+        @test tab.angle[b] != 0.0
+        bend = tab.node[b]["BendP"]
+        @test isapprox(tab.angle[b], Float64(bend["g_ref"]) * tab.length[b];
+                       rtol=1e-9)
+    end
+
+    # Placement lives only in `full_expanded`; `expanded` is pruned back to what
+    # the author wrote, so reading it would yield an empty table.
+    @testset "placement comes from full_expanded" begin
+        lat = parse_and_expand_pals(CONVERT; problems=:none)
+        ele = lat.full_expanded["lat"]["branches"][1]["ring"]["line"][1]["beg"]
+        @test pj.haskey(ele, "FloorP")
+        @test pj.haskey(ele, "s_position")
+        pruned = lat.expanded["lat"]["branches"][1]["ring"]["line"][1]["beg"]
+        @test !pj.haskey(pruned, "FloorP")
     end
 else
     @info "Skipping extraction tests: $CONVERT not found (needs sibling PALSJulia checkout)"
