@@ -1,16 +1,24 @@
 # Extraction of a flat, plotting-friendly view of an expanded PALS lattice.
 #
-# The expanded tree produced by `parse_and_expand_pals` nests as
+# Plotting reads `lat.full_expanded`, not `lat.expanded`: the two hold the same
+# lattice, but `expanded` is pruned back to what the author wrote, and placement
+# is never written by hand. `FloorP`, `s_position` and the derived members of
+# `BendP` exist only in `full_expanded`.
+#
+# That tree nests as
 #
 #   <root>
 #     <lattice-name>:            # kind: Lattice
 #       branches:
-#         - <branch-name>:       # a BeamLine
+#         - <branch-name>:
 #             line:
-#               - <ele-name>:    # kind: Quadrupole, SBend, Drift, ...
+#               - <ele-name>:    # kind: Quadrupole, Bend, Drift, ...
 #                   length: ...
 #                   FloorP: {x, y, z, theta, phi, psi}   # UPSTREAM (entrance) end
-#                   BendP:  {g_ref, ...}                  # bends only
+#                   BendP:  {angle_ref, ...}             # bends only
+#                   s_position: ...
+#               - branch_end:    # kind: Placeholder, appended by the bookkeeper
+#                   FloorP: ...  # the downstream end of the last element
 #                   s_position: ...
 #
 # `ElementTable` flattens every element of every branch into parallel arrays
@@ -95,8 +103,12 @@ end
 """
     element_table(lat::Lattices) -> ElementTable
 
-Flatten every element of every branch of `lat.expanded` into an `ElementTable`.
-Elements are appended branch by branch in lattice order.
+Flatten every element of every branch of `lat.full_expanded` into an
+`ElementTable`. Elements are appended branch by branch in lattice order.
+
+`full_expanded` rather than `expanded` because only it carries the parameters
+the bookkeeper computed — `FloorP`, `s_position` and the bend geometry — which
+is everything the drawing is placed from.
 """
 function element_table(lat::pj.Lattices)
   name = String[]; kind = String[]; len = Float64[]
@@ -104,7 +116,7 @@ function element_table(lat::pj.Lattices)
   theta = Float64[]; angle = Float64[]; s = Float64[]
   branch = Int[]; node = pj.YAMLNode[]; bnames = String[]
 
-  for latnode in _lattices(lat.expanded)
+  for latnode in _lattices(lat.full_expanded)
     pj.haskey(latnode, "branches") || continue
     for bentry in latnode["branches"]
       bname, bmap = _unwrap(bentry)
@@ -128,10 +140,14 @@ function element_table(lat::pj.Lattices)
         push!(s, _num(emap, "s_position"))
         push!(branch, bidx); push!(node, emap)
 
-        # Bend angle from the reference curvature: angle = g_ref * length.
+        # Bend angle, read the way the expander's own floor propagation reads it
+        # (`element_LS` in pals_expand.cpp): `angle_ref`, which the bookkeeper
+        # derives from whichever pair of curvature/length/chord the author gave,
+        # falling back to g_ref * length for a bend it could not reduce.
         a = 0.0
         if pj.haskey(emap, "BendP")
-          a = _num(emap["BendP"], "g_ref") * L
+          bp = emap["BendP"]
+          a = pj.haskey(bp, "angle_ref") ? _num(bp, "angle_ref") : _num(bp, "g_ref") * L
         end
         push!(angle, a)
       end

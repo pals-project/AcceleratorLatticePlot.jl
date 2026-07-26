@@ -96,31 +96,56 @@ end
 """
     default_shapes() -> Vector{ShapeRule}
 
-Built-in element-class → shape table, loosely following Tao's floor-plan
-conventions: bends blue, quadrupoles black boxed-X, sextupoles green, etc.
-Drifts and markers draw only the centerline (`:none`).
+Built-in element-class → shape table covering the element kinds PALS defines
+(`lattice-element-kinds.md`), loosely following Tao's floor-plan conventions:
+bends blue, quadrupoles black boxed-X, sextupoles green, cavities red, and so
+on. Drifts and the zero-length bookkeeping elements draw only the centerline
+(`:none`).
+
+An element of a kind not listed here — `Feedback` and `Girder`, which are not
+part of a beam line, or anything the standard adds later — falls through to the
+`"*"` rule and is drawn as a small unlabeled box.
 """
 function default_shapes()
   R(class, shape, color; kw...) = ele_shape(class, shape, color; kw...)
   return ShapeRule[
-    R("SBend",      :box,    :blue,    size=0.5),
-    R("RBend",      :box,    :blue,    size=0.5),
-    R("Bend",       :box,    :blue,    size=0.5),
-    R("Quadrupole", :xbox,   :black,   size=0.5),
-    R("Sextupole",  :box,    :green,   size=0.4),
-    R("Octupole",   :box,    :green,   size=0.4),
-    R("Solenoid",   :box,    :cyan,    size=0.5),
-    R("Wiggler",    :box,    :green,   size=0.5),
-    R("Undulator",  :box,    :green,   size=0.5),
-    R("Lcavity",    :box,    :red,     size=0.5),
-    R("RFCavity",   :box,    :red,     size=0.5),
-    R("Kicker",     :box,    :magenta, size=0.3),
-    R("HKicker",    :box,    :magenta, size=0.3),
-    R("VKicker",    :box,    :magenta, size=0.3),
-    R("Multipole",  :diamond, :purple, size=0.3),
-    R("Drift",      :none,   :gray60,  size=0.0, label=:none),
-    R("Placeholder", :none,  :gray60,  size=0.0, label=:none),
-    R("Marker",     :none,   :gray60,  size=0.0, label=:none),
-    R("*",          :box,    :black,   size=0.3, label=:none),
+    # Magnets and RF cavities
+    R("Bend",        :box,     :blue,     size=0.5),
+    R("Quadrupole",  :xbox,    :black,    size=0.5),
+    R("Sextupole",   :box,     :green,    size=0.4),
+    R("Octupole",    :box,     :green,    size=0.4),
+    R("Solenoid",    :box,     :cyan,     size=0.5),
+    R("Wiggler",     :box,     :green,    size=0.5),
+    R("Multipole",   :diamond, :purple,   size=0.3),
+    R("Kicker",      :box,     :magenta,  size=0.3),
+    R("ACKicker",    :box,     :magenta,  size=0.3),
+    R("RFCavity",    :box,     :red,      size=0.5),
+    R("CrabCavity",  :box,     :red,      size=0.4),
+    # Beam and plasma
+    R("BeamBeam",    :diamond, :orange,   size=0.4),
+    # Sources and collimation
+    R("EGun",        :r_triangle, :red,   size=0.5),
+    R("Converter",   :r_triangle, :sienna, size=0.4),
+    R("Foil",        :box,     :sienna,   size=0.2),
+    R("Mask",        :bow_tie, :sienna,   size=0.4),
+    # Instrumentation
+    R("Instrument",  :box,     :darkgreen, size=0.3),
+    # Map elements
+    R("Match",       :box,     :gray40,   size=0.3),
+    R("Taylor",      :box,     :gray40,   size=0.3),
+    # Bookkeeping: the ones that redirect the reference curve are worth seeing,
+    # the rest only mark a point on it.
+    R("Fork",        :u_triangle, :orange, size=0.5),
+    R("Patch",       :rbow_tie, :gray40,  size=0.3),
+    R("FloorShift",  :x,       :gray40,   size=0.3),
+    R("ReferenceChange", :x,   :gray40,   size=0.3),
+    R("Fiducial",    :x,       :gray40,   size=0.3),
+    R("BeginningEle", :none,   :gray60,   size=0.0, label=:none),
+    R("Marker",      :none,    :gray60,   size=0.0, label=:none),
+    R("Placeholder", :none,    :gray60,   size=0.0, label=:none),
+    R("Drift",       :none,    :gray60,   size=0.0, label=:none),
+    # Grouping
+    R("UnionEle",    :box,     :gray40,   size=0.4),
+    R("*",           :box,     :black,    size=0.3, label=:none),
   ]
 end
