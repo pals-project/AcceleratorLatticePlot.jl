@@ -1,20 +1,21 @@
-# GLMakie rendering and interaction for floor-plan drawings.
+# Makie rendering and interaction for floor-plan drawings.
 #
 # The whole lattice is drawn with a few batched calls (see geometry.jl). Pan and
 # zoom come from Makie's default Axis interactions. Clicking an element selects
 # it: the element is highlighted and its full parameter tree is listed in a side
 # panel. Selection uses a nearest-centroid search in data coordinates rather than
 # GPU picking, which keeps it independent of how the shapes are drawn.
+#
+# This builds on `Makie` itself rather than on a particular backend: every call
+# here is Makie core, and a backend is needed only to put the figure somewhere --
+# GLMakie for an interactive window, CairoMakie to rasterize it to a file. So the
+# caller loads whichever they want and PALSPlot has no opinion, which is also
+# what lets the tests run on a machine with no OpenGL at all.
 
 using GeometryBasics: Point2f
 using Colors
-using GLMakie
+using Makie
 import PALSJulia as pj
-
-function __init__()
-  GLMakie.activate!()
-  return
-end
 
 "Handle to a live floor-plan window: the figure, its axis, and the source data."
 struct FloorPlot
@@ -78,10 +79,14 @@ end
     floor_plot(lat; view="zx", shapes=ShapeMap(), title="Floor Plan",
                label_min_px=6, size=(1500, 850)) -> FloorPlot
 
-Draw a floor-plan of the expanded lattice `lat` in a GLMakie window. Returns a
-`FloorPlot`; `display` it (a script should `wait` on the window to keep it open).
+Build a floor-plan of the expanded lattice `lat`. Returns a `FloorPlot`; what you
+do with it is the backend's business — `using GLMakie` and `display(fp)` opens an
+interactive window (a script should `wait` on it to keep it open), `using
+CairoMakie` and `save("floor.pdf", fp.figure)` writes a file. The figure itself
+is built with Makie alone, so no backend is needed to construct one.
 
-Controls (Makie's default `Axis` bindings): **scroll** zooms at the cursor,
+Controls, once displayed in an interactive backend (Makie's default `Axis`
+bindings): **scroll** zooms at the cursor,
 **right-drag** pans, **left-drag** rubber-band-zooms to a rectangle, **double-click**
 resets the view, and **left-click** selects an element (listing its parameters in
 the side panel).
@@ -104,8 +109,9 @@ end
 """
     floor_plot(tab::ElementTable; kwargs...) -> FloorPlot
 
-Draw a floor-plan from an already-extracted `ElementTable`. Useful when the table
-was built before GLMakie was loaded, or is synthesized directly.
+Draw a floor-plan from an already-extracted `ElementTable`, rather than
+extracting one from a lattice. Useful when the table is synthesized directly, or
+was built once and is being drawn in several projections.
 """
 function floor_plot(tab::ElementTable; view::AbstractString="zx",
                     shapes::ShapeMap=ShapeMap(), title::AbstractString="Floor Plan",

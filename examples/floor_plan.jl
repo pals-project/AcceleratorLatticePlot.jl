@@ -3,11 +3,13 @@
 # Run with:
 #     julia --project=. examples/floor_plan.jl [lattice-file]
 #
-# A GLMakie window opens: scroll to zoom, right-drag to pan, left-click an element
-# to list its parameters in the side panel.
+# in an environment with GLMakie added -- PALSPlot depends on Makie and leaves the
+# backend to the caller. A window opens: scroll to zoom, right-drag to pan,
+# left-click an element to list its parameters in the side panel.
 
 using PALSJulia
 using PALSPlot
+using GLMakie      # the backend; PALSPlot itself depends only on Makie
 
 # Default to the bundled convert example in the sibling PALSJulia checkout.
 default_file = normpath(joinpath(@__DIR__, "..", "..", "PALSJulia",

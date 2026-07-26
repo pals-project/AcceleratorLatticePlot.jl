@@ -13,10 +13,15 @@ Quick start:
 
 ```julia
 using PALSJulia, PALSPlot
+using GLMakie                 # or any other Makie backend
 lat = parse_and_expand_pals("machine.pals.yaml")
-fp = floor_plot(lat)          # opens an interactive GLMakie window
-display(fp)
+fp = floor_plot(lat)
+display(fp)                   # opens an interactive window
 ```
+
+PALSPlot builds on `Makie` rather than on a particular backend, so the caller
+chooses one: GLMakie for an interactive window, CairoMakie to write a file. None
+is needed to build the figure, or to use the extraction and geometry stages.
 
 The geometry, shape mapping and rendering stages are separate so the geometry can
 also be used headless (see [`element_table`](@ref) and [`build_geometry`](@ref)).

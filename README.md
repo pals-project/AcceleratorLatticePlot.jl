@@ -1,8 +1,10 @@
 # PALSPlot.jl
 
+[![Julia Tests](https://github.com/pals-project/PALSPlot.jl/actions/workflows/test.yaml/badge.svg)](https://github.com/pals-project/PALSPlot.jl/actions/workflows/test.yaml)
+
 Floor-plan plotting for [PALS](https://github.com/campa-consortium/pals) lattices,
 built on [PALSJulia](https://github.com/pals-project/PALSJulia.jl) and
-[GLMakie](https://docs.makie.org/stable/).
+[Makie](https://docs.makie.org/stable/).
 
 Given the expanded lattice from `PALSJulia.parse_and_expand_pals`, PALSPlot draws
 the machine projected onto a plane. Each element is rendered as a shape — sized,
@@ -38,15 +40,37 @@ Then, from the `PALSPlot` directory:
 julia --project=. -e 'using Pkg; Pkg.develop(path="../PALSJulia"); Pkg.instantiate()'
 ```
 
+### Choosing a backend
+
+PALSPlot depends on **Makie**, not on any one Makie backend: every drawing call
+it makes is Makie core, and a backend is needed only to put the figure
+somewhere. So you add the one you want.
+
+```console
+julia --project=. -e 'using Pkg; Pkg.add("GLMakie")'      # interactive window
+julia --project=. -e 'using Pkg; Pkg.add("CairoMakie")'   # write PDF/PNG/SVG
+```
+
+Loading a backend activates it, so `using GLMakie` is all it takes. The
+extraction and geometry stages, and building a `Figure`, need no backend at all.
+
 ## Quick start
 
 ```julia
 using PALSJulia
 using PALSPlot
+using GLMakie
 
 lat = parse_and_expand_pals("machine.pals.yaml")
-fp  = floor_plot(lat)    # opens an interactive GLMakie window
-display(fp)
+fp  = floor_plot(lat)
+display(fp)              # opens an interactive window
+```
+
+or, with no display available, render straight to a file:
+
+```julia
+using CairoMakie
+save("floor.pdf", floor_plot(lat).figure)
 ```
 
 or run the bundled example:
@@ -82,10 +106,10 @@ centerline.
 ### Build pals-cpp against libc++
 
 PALSPlot needs the pals-cpp C library to be built with the **same C++ runtime as
-Julia and GLMakie — LLVM libc++ (Apple clang)**. If pals-cpp is instead built
-with GCC/libstdc++ (e.g. because `CC`/`CXX` point at MacPorts GCC), then loading
-GLMakie and then parsing a lattice file **aborts the process** (signal 6): the two
-C++ exception runtimes clash in the library's file reader.
+Julia and Makie — LLVM libc++ (Apple clang)**. If pals-cpp is instead built with
+GCC/libstdc++ (e.g. because `CC`/`CXX` point at MacPorts GCC), then loading a
+Makie backend and then parsing a lattice file **aborts the process** (signal 6):
+the two C++ exception runtimes clash in the library's file reader.
 
 Build pals-cpp with clang:
 
@@ -139,7 +163,7 @@ The Julia API is thin and callable from Python via
 
 ```python
 from juliacall import Main as jl
-jl.seval("using PALSJulia, PALSPlot")
+jl.seval("using PALSJulia, PALSPlot, GLMakie")
 lat = jl.parse_and_expand_pals("machine.pals.yaml")
 fp  = jl.floor_plot(lat)
 jl.display(fp)
@@ -147,12 +171,21 @@ jl.display(fp)
 
 ## Headless use
 
-The extraction and geometry stages are independent of GLMakie and can be used
-without opening a window:
+No backend is needed to extract a lattice, compute its geometry, or build the
+figure — only to put that figure somewhere:
 
 ```julia
 tab  = element_table(lat)                 # struct-of-arrays over every element
 geom = build_geometry(tab, ShapeMap())    # batched 2D draw data
+fig  = floor_plot(tab).figure             # a Makie Figure, undisplayed
+```
+
+With CairoMakie loaded that figure goes straight to a file, no display or OpenGL
+involved anywhere:
+
+```julia
+using CairoMakie
+save("floor.pdf", fig)
 ```
 
 ## Status
@@ -161,8 +194,45 @@ Initial development. 2D floor plans with pan/zoom, click-to-inspect, Tao-style
 shape mapping, and curved bends are working. Planned: 3D views, building-wall
 overlays, and reference-orbit overlays.
 
-Known gap: every element is placed exactly, from its own `FloorP`, but the
-*within-element* curve of a bend is drawn in the projection plane from the
-heading `theta` alone. A bend with a non-zero `BendP.tilt_ref` — one that bends
-out of that plane — therefore has the right endpoints but the wrong arc between
-them.
+Known gap: **a reference curve that leaves the projection plane is drawn as
+though it did not.** Every element is placed exactly, from its own `FloorP`, but
+the frame the drawing is carried across it on is built from the heading `theta`
+alone — `FloorP.phi` and `FloorP.psi` are ignored, as is `BendP.tilt_ref`. So on
+a lattice that stays in the plane the drawing closes on the expander's floor
+coordinates to rounding (checked in the tests against `bta.pals.yaml`), while on
+one that does not:
+
+* a straight element is drawn at its full length rather than its projected
+  length, overshooting by `L·(1 − cos φ)` — 0.25 m on a 1.3 m cavity at
+  `phi = −0.63` in `convert.pals.yaml`;
+* a bend with a non-zero `tilt_ref` gets the right endpoints and the wrong arc
+  between them.
+
+Both fall out of building the frame from the standard's W matrix
+(`pals_floor.h`, Eq. www) rather than from `theta`.
+
+## Testing
+
+```console
+julia --project=. -e 'using Pkg; Pkg.develop(path="../PALSJulia"); Pkg.instantiate(); Pkg.test()'
+```
+
+CI runs the suite on Julia 1.11 and 1.12, on Linux and macOS, against **`main`
+of PALSJulia and pals-cpp** — both are checked out fresh and pals-cpp is built
+from source on every run. PALSJulia binds the pals-cpp C structs by layout and
+PALSPlot draws from the floor coordinates pals-cpp computes, so a change to
+either that PALSPlot has not followed shows up as a failure here rather than as
+an empty window later.
+
+The suite renders through **CairoMakie**, which is pure software and so needs no
+display, no OpenGL and no X server. That is what lets it run everywhere: a
+headless macOS runner cannot give GLMakie an OpenGL context at all — GLMakie will
+not even precompile there, since its precompile workload opens a GLFW window.
+
+GLMakie is what you actually open a window with, so it is covered separately by
+`test/glmakie_smoke.jl`, which CI runs on Linux under `xvfb-run`. To run it
+yourself, in an environment with GLMakie added:
+
+```console
+julia --project=. test/glmakie_smoke.jl
+```
