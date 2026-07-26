@@ -4,7 +4,7 @@
 
 Floor-plan plotting for [PALS](https://github.com/campa-consortium/pals) lattices,
 built on [PALSJulia](https://github.com/pals-project/PALSJulia.jl) and
-[GLMakie](https://docs.makie.org/stable/).
+[Makie](https://docs.makie.org/stable/).
 
 Given the expanded lattice from `PALSJulia.parse_and_expand_pals`, PALSPlot draws
 the machine projected onto a plane. Each element is rendered as a shape — sized,
@@ -40,15 +40,37 @@ Then, from the `PALSPlot` directory:
 julia --project=. -e 'using Pkg; Pkg.develop(path="../PALSJulia"); Pkg.instantiate()'
 ```
 
+### Choosing a backend
+
+PALSPlot depends on **Makie**, not on any one Makie backend: every drawing call
+it makes is Makie core, and a backend is needed only to put the figure
+somewhere. So you add the one you want.
+
+```console
+julia --project=. -e 'using Pkg; Pkg.add("GLMakie")'      # interactive window
+julia --project=. -e 'using Pkg; Pkg.add("CairoMakie")'   # write PDF/PNG/SVG
+```
+
+Loading a backend activates it, so `using GLMakie` is all it takes. The
+extraction and geometry stages, and building a `Figure`, need no backend at all.
+
 ## Quick start
 
 ```julia
 using PALSJulia
 using PALSPlot
+using GLMakie
 
 lat = parse_and_expand_pals("machine.pals.yaml")
-fp  = floor_plot(lat)    # opens an interactive GLMakie window
-display(fp)
+fp  = floor_plot(lat)
+display(fp)              # opens an interactive window
+```
+
+or, with no display available, render straight to a file:
+
+```julia
+using CairoMakie
+save("floor.pdf", floor_plot(lat).figure)
 ```
 
 or run the bundled example:
@@ -84,10 +106,10 @@ centerline.
 ### Build pals-cpp against libc++
 
 PALSPlot needs the pals-cpp C library to be built with the **same C++ runtime as
-Julia and GLMakie — LLVM libc++ (Apple clang)**. If pals-cpp is instead built
-with GCC/libstdc++ (e.g. because `CC`/`CXX` point at MacPorts GCC), then loading
-GLMakie and then parsing a lattice file **aborts the process** (signal 6): the two
-C++ exception runtimes clash in the library's file reader.
+Julia and Makie — LLVM libc++ (Apple clang)**. If pals-cpp is instead built with
+GCC/libstdc++ (e.g. because `CC`/`CXX` point at MacPorts GCC), then loading a
+Makie backend and then parsing a lattice file **aborts the process** (signal 6):
+the two C++ exception runtimes clash in the library's file reader.
 
 Build pals-cpp with clang:
 
@@ -141,7 +163,7 @@ The Julia API is thin and callable from Python via
 
 ```python
 from juliacall import Main as jl
-jl.seval("using PALSJulia, PALSPlot")
+jl.seval("using PALSJulia, PALSPlot, GLMakie")
 lat = jl.parse_and_expand_pals("machine.pals.yaml")
 fp  = jl.floor_plot(lat)
 jl.display(fp)
@@ -149,12 +171,21 @@ jl.display(fp)
 
 ## Headless use
 
-The extraction and geometry stages are independent of GLMakie and can be used
-without opening a window:
+No backend is needed to extract a lattice, compute its geometry, or build the
+figure — only to put that figure somewhere:
 
 ```julia
 tab  = element_table(lat)                 # struct-of-arrays over every element
 geom = build_geometry(tab, ShapeMap())    # batched 2D draw data
+fig  = floor_plot(tab).figure             # a Makie Figure, undisplayed
+```
+
+With CairoMakie loaded that figure goes straight to a file, no display or OpenGL
+involved anywhere:
+
+```julia
+using CairoMakie
+save("floor.pdf", fig)
 ```
 
 ## Status
@@ -193,5 +224,15 @@ PALSPlot draws from the floor coordinates pals-cpp computes, so a change to
 either that PALSPlot has not followed shows up as a failure here rather than as
 an empty window later.
 
-The tests load GLMakie but never open a window. On Linux that still needs an X
-server to initialize against, so CI runs them under `xvfb-run`.
+The suite renders through **CairoMakie**, which is pure software and so needs no
+display, no OpenGL and no X server. That is what lets it run everywhere: a
+headless macOS runner cannot give GLMakie an OpenGL context at all — GLMakie will
+not even precompile there, since its precompile workload opens a GLFW window.
+
+GLMakie is what you actually open a window with, so it is covered separately by
+`test/glmakie_smoke.jl`, which CI runs on Linux under `xvfb-run`. To run it
+yourself, in an environment with GLMakie added:
+
+```console
+julia --project=. test/glmakie_smoke.jl
+```

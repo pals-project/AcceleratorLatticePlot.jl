@@ -10,6 +10,12 @@ on:
 # C structs by layout, and pals-cpp is what computes the floor coordinates the
 # plotter draws from -- so both are checked out at `main` and pals-cpp is built
 # from source. A change to either that PALSPlot has not followed shows up here.
+#
+# The suite renders through CairoMakie, which is pure software and so runs on any
+# runner. GLMakie needs a real OpenGL context: Linux can supply one under xvfb
+# and does, in a separate step; a headless macOS runner cannot supply one at all
+# (GLMakie will not even precompile there), which is why it is not the backend
+# the tests depend on.
 
 jobs:
   test:
@@ -25,15 +31,15 @@ jobs:
     steps:
       # The three repositories side by side, the layout the README describes and
       # the one PALSJulia searches: it looks for the shared library at
-      # `<PALSJulia>/../pals-cpp/build`, and PALSPlot's Project.toml develops
-      # PALSJulia at `../PALSJulia`.
+      # `<PALSJulia>/../pals-cpp/build`, and PALSPlot develops PALSJulia at
+      # `../PALSJulia`.
       - name: Checkout PALSPlot repository
         uses: actions/checkout@v5
         with:
           path: PALSPlot
 
       # Checked out as `PALSJulia`, not `PALSJulia.jl`: that is the directory
-      # name Project.toml and PALSJulia's own library search both expect.
+      # name PALSPlot and PALSJulia's own library search both expect.
       - name: Checkout PALSJulia repository
         uses: actions/checkout@v5
         with:
@@ -54,11 +60,9 @@ jobs:
       - uses: julia-actions/cache@v2
 
       # pals-cpp fetches rapidyaml (and the rest) itself via CMake FetchContent,
-      # so a compiler and CMake are all that is needed for it; both runners ship
-      # CMake preinstalled. The rest of this list is for GLMakie, which PALSPlot
-      # loads at `using` time: it needs OpenGL headers and libraries to build and
-      # an X server to initialize against, neither of which a headless Ubuntu
-      # runner has. macOS needs none of it.
+      # so a compiler and CMake are all it needs; both runners ship CMake. The
+      # OpenGL and xvfb packages are for the GLMakie step further down, which
+      # runs on Linux only.
       - name: Install system dependencies (Ubuntu)
         if: runner.os == 'Linux'
         run: |
@@ -70,8 +74,8 @@ jobs:
 
       # The library and Julia must share a C++ runtime. On macOS that means
       # clang/libc++ -- the runner default, so CC/CXX are left unset rather than
-      # pointed anywhere. If they ever disagree, loading GLMakie and then parsing
-      # a lattice aborts the process rather than failing a test (see the README).
+      # pointed anywhere. If they ever disagree, loading a Makie backend and then
+      # parsing a lattice aborts the process rather than failing a test.
       - name: Build the pals-cpp shared library
         working-directory: pals-cpp
         run: |
@@ -84,7 +88,7 @@ jobs:
         run: |
           otool -L pals-cpp/build/libyaml_c_wrapper.dylib
           if otool -L pals-cpp/build/libyaml_c_wrapper.dylib | grep -q libstdc++; then
-            echo "::error::libyaml_c_wrapper links libstdc++; Julia and GLMakie need libc++"
+            echo "::error::libyaml_c_wrapper links libstdc++; Julia and Makie need libc++"
             exit 1
           fi
         shell: bash
@@ -99,14 +103,25 @@ jobs:
           '
         shell: bash
 
-      - name: Run tests (Ubuntu)
-        if: runner.os == 'Linux'
-        working-directory: PALSPlot
-        run: xvfb-run -a -s '-screen 0 1024x768x24' julia --project=. -e 'using Pkg; Pkg.test()'
-        shell: bash
-
-      - name: Run tests (macOS)
-        if: runner.os == 'macOS'
+      # The whole suite, rendering through CairoMakie. No display required.
+      - name: Run tests
         working-directory: PALSPlot
         run: julia --project=. -e 'using Pkg; Pkg.test()'
+        shell: bash
+
+      # What a user actually opens a window with. GLMakie is not a dependency of
+      # the package, so it goes in a scratch environment; xvfb supplies the
+      # OpenGL context. Linux only -- see the note at the top.
+      - name: Smoke-test the GLMakie backend (Ubuntu)
+        if: runner.os == 'Linux'
+        working-directory: PALSPlot
+        run: |
+          julia --project=/tmp/glenv -e '
+            using Pkg
+            Pkg.develop(path=".")
+            Pkg.develop(path="../PALSJulia")
+            Pkg.add("GLMakie")
+          '
+          xvfb-run -a -s '-screen 0 1024x768x24' \
+            julia --project=/tmp/glenv test/glmakie_smoke.jl
         shell: bash

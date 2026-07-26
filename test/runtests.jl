@@ -4,14 +4,15 @@ using PALSJulia          # for parse_and_expand_pals in the extraction tests
 import PALSPlot as pp
 import PALSJulia as pj
 
-# `using PALSPlot` loads GLMakie (render.jl does), so these tests run with it
-# loaded even though none of them opens a window. That is deliberate: it is the
-# combination of GLMakie plus a call into the pals-cpp parser that aborts the
-# process when the library was built against the wrong C++ runtime, so the test
-# run exercises the pairing rather than dodging it (see the README).
+# CairoMakie is the backend under test. PALSPlot itself depends only on Makie, so
+# a backend is needed here purely to prove the figures render -- and Cairo is
+# pure software, which means these tests run anywhere, including the CI runners
+# that cannot give GLMakie an OpenGL context.
 #
-# On a headless machine GLMakie still needs an X server to initialize against;
-# CI runs these under xvfb.
+# Loading a Makie backend and then calling into the pals-cpp parser is also the
+# pairing that aborts the process when the library was built against the wrong
+# C++ runtime (see the README), so running the two together is deliberate.
+using CairoMakie
 
 # A throwaway node to fill ElementTable.node in synthetic tables.
 const NODE = pj.parse_string("kind: Drift\n")
@@ -332,6 +333,29 @@ end
     # Selecting an element drives the highlight overlay.
     fp.selected[] = 2
     @test !isempty(element_outline(fp.table, 2; view="zx"))
+end
+
+# Building a figure is not the same as being able to draw one: rasterizing it
+# runs every plot object through a backend, which is where a Makie change that
+# PALSPlot has not followed would actually bite.
+@testset "the figure renders through a backend" begin
+    tab = synth_table(names=["q1", "b1"], kinds=["Quadrupole", "Bend"],
+                      lengths=[0.5, 1.0], x=[0.0, 0.0], z=[0.0, 0.5],
+                      theta=[0.0, 0.0], angle=[0.0, 0.2])
+    fp = floor_plot(tab; view="zx", size=(400, 300))
+
+    img = Makie.colorbuffer(fp.figure)
+    @test size(img, 1) > 0 && size(img, 2) > 0
+    @test length(unique(img)) > 1        # something was actually drawn, not a blank
+
+    mktempdir() do dir
+        for ext in ("png", "pdf", "svg")
+            path = joinpath(dir, "floor.$ext")
+            save(path, fp.figure)
+            @test isfile(path)
+            @test filesize(path) > 0
+        end
+    end
 end
 
 if isfile(CONVERT)
