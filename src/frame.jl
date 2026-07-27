@@ -128,29 +128,27 @@ element's `FloorP` rather than merely coming near it.
   # swings out of the vertical. A positive angle_ref moves the exit toward
   # negative branch x, which is why the transverse term is rho*(cos - 1).
   #
-  # A caveat on `tilt`, which matters only for a bend that is rolled out of its
-  # branch's x-z plane. The standard writes the bend's coordinate rotation twice:
-  # as an axis and angle (Eq. ustt, u = (-sin θ_tr, -cos θ_tr, 0)) and as a
-  # conjugation (Eq. srrr, S = R_z(θ_tr) R_y(-α_b) R_z(-θ_tr)). The two are not
-  # the same rotation: they differ in the sign of u's first component, and only
-  # the second agrees with the displacement in Eq. lrztt -- which is
-  # R_z(θ_tr)·L̃, i.e. the untilted bend turned bodily about z, so its coordinate
-  # rotation has to be the untilted one conjugated the same way. Under Eq. ustt
-  # the frame's z axis comes off the tangent to the very arc it is travelling
-  # along, by about 2 sin(α_b) sin(θ_tr).
+  # The standard writes the bend's coordinate rotation twice: as an axis and
+  # angle (Eq. ustt, u = (sin θ_tr, -cos θ_tr, 0)) and as a conjugation
+  # (Eq. srrr, S = R_z(θ_tr) R_y(-α_b) R_z(-θ_tr)). They are the same rotation,
+  # and both agree with the displacement in Eq. lrztt -- which is R_z(θ_tr)·L̃,
+  # the untilted bend turned bodily about z, so its coordinate rotation is the
+  # untilted one conjugated the same way. The axis is just the untilted axis
+  # (0, -1, 0) carried around by that same R_z(θ_tr).
   #
-  # pals-cpp's `bend_LS` implements Eq. ustt, and that is what is followed here:
-  # AcceleratorLatticePlot's business is to draw the lattice the expander built,
-  # and using the other convention would open a visible gap at every tilted bend,
-  # at the exit face of which the expander has already written the next element's
-  # `FloorP`.
-  # The `place` tests pin this down, so if pals-cpp changes they fail here rather
+  # This used to disagree: Eq. ustt read u = (-sin θ_tr, -cos θ_tr, 0), which is
+  # a *different* rotation for a bend rolled out of its branch's x-z plane, and
+  # left the frame's z axis off the tangent to the arc it is travelling along by
+  # about 2 sin(α_b) sin(θ_tr). pals-cpp's `bend_LS` implemented that sign and
+  # this function followed it to keep the drawing flush with the expander's
+  # `FloorP`. Both have since been corrected; the `place` tests check the two
+  # forms against each other so a regression on either side fails here rather
   # than turning into a mystery about the drawing.
   rho = len / angle
   a = f * angle
   Lt = Vec3d(rho * (cos(a) - 1.0), 0.0, rho * sin(a))
   L = rot_z(tilt) * Lt
-  S = axis_angle(Vec3d(-sin(tilt), -cos(tilt), 0.0), a)
+  S = axis_angle(Vec3d(sin(tilt), -cos(tilt), 0.0), a)
   return Placement(r0 + W0 * L, W0 * S)
 end
 
