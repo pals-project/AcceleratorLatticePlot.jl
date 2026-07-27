@@ -50,9 +50,22 @@ struct FloorGeometry3
   ref_pts::Vector{Point3f}           # reference curve, NaN-separated per branch
   ref_col::RGBA{Float32}
 
+  # Label anchors, in data space, one transverse half-height out from the
+  # element's midpoint along its local +x -- the side the floor plan labels from.
+  # This fixes the *direction* a label sits in and its depth; how far out it
+  # actually has to go, how much room it needs, and how two that collide are
+  # separated are all pixel quantities that exist only once there is a camera,
+  # and are resolved per frame by `_layout_labels3` in render3.jl.
   label_pos::Vector{Point3f}
+  # The same point along the local +y instead. Projecting both gives the two
+  # transverse half-extents of the element as they appear on screen, which is
+  # what says how far out a label has to sit to clear the solid it names -- a
+  # distance that changes as the camera turns, and that no offset in meters can
+  # stand in for.
+  label_probe::Vector{Point3f}
   label_str::Vector{String}
   label_ele::Vector{Int}
+  label_sep::Float64                 # collision padding, in units of the font size
 
   # Element centerline, sampled coarsely: entrance, midpoint and exit. Picking
   # measures a mouse ray against those two segments, which is exact for a
@@ -114,10 +127,12 @@ straight down at the result gives the default `"zx"` floor plan.
 `arc_tol` is the maximum angular step (rad) a bend's arc is tessellated at;
 `circle_sides` sets the facet count of `:circle` elements, which are drawn as
 spheres. `edges=false` drops the outline strokes, leaving bare shaded solids.
-`label_sep` works as it does in [`build_geometry`](@ref) -- how close two label
-anchors must be to count as colliding, in units of the elements' half-height --
-but the labels it separates are stacked vertically rather than outward, since a
-billboarded label has no outward direction of its own.
+
+`label_sep` is the padding, in units of the font size, left around a label when
+deciding whether it collides with one already placed. Unlike its 2D counterpart
+it is not applied here: labels are laid out per frame in screen space (see
+`_layout_labels3`), so this only rides along in the returned geometry for the
+renderer to use. `0` disables the collision handling, leaving labels to overlap.
 """
 function build_geometry3(tab::ElementTable, smap::ShapeMap;
                          view::AbstractString="zxy", arc_tol::Real=0.08,
@@ -132,10 +147,7 @@ function build_geometry3(tab::ElementTable, smap::ShapeMap;
   edge_pts = Point3f[]; edge_col = RGBA{Float32}[]
   ref_pts = Point3f[]
   label_str = String[]; label_ele = Int[]
-  label_base = Point3f[]      # anchor before the collision stack is applied
-  label_up = Vec3f[]          # the direction that stack runs in
-  label_anchor = Point3f[]    # element midpoint, what collisions are judged on
-  label_h = Float32[]
+  label_pos = Point3f[]; label_probe = Point3f[]
   ele_entrance = Vector{Point3f}(undef, length(tab))
   ele_center = Vector{Point3f}(undef, length(tab))
   ele_exit = Vector{Point3f}(undef, length(tab))
@@ -192,59 +204,29 @@ function build_geometry3(tab::ElementTable, smap::ShapeMap;
       end
     end
 
-    # Label anchor: out past the shape on the +x side of the centerline, the same
-    # side the floor plan puts it on, and lifted a little so it clears the solid
-    # when the machine is seen edge-on.
+    # Label anchor, on the +x side of the centerline like the floor plan's, and
+    # the matching +y probe. Both sit one half-height out, so projecting them
+    # measures the solid rather than merely escaping it.
     if spec.label !== :none
-      hmax = Float32(max(spec.size, spec.size2))
-      off = 1.6f0 * hmax
-      push!(label_base, pmid + off * midx + 0.4f0 * off * midy)
-      push!(label_up, midy)
-      push!(label_anchor, pmid)
-      push!(label_h, hmax)
+      hx = Float32(spec.size) + 0.02f0    # +eps so a zero-size element still
+      hy = Float32(spec.size2) + 0.02f0   # gives a direction to place along
+      push!(label_pos, pmid + hx * midx)
+      push!(label_probe, pmid + hy * midy)
       push!(label_str,
             spec.label === :s ? string(round(tab.s[i]; digits=3)) : tab.name[i])
       push!(label_ele, i)
     end
   end
 
-  label_pos = _stack_labels3(label_base, label_up, label_anchor, label_h, label_sep)
-
   return FloorGeometry3(mesh_pts, mesh_nrm, mesh_faces, mesh_col, vertex_ele,
                         edge_pts, edge_col, ref_pts, RGBA{Float32}(0, 0, 0, 1),
-                        label_pos, label_str, label_ele,
+                        label_pos, label_probe, label_str, label_ele,
+                        Float64(label_sep),
                         ele_entrance, ele_center, ele_exit)
 end
 
 @inline _vec3(a::Char, b::Char, c::Char, v::Vec3d) =
   Vec3f(_axis(a, v), _axis(b, v), _axis(c, v))
-
-# Elements that share a piece of the machine -- a pickup with the two correctors
-# wound around it -- share a label anchor, and the floor plan deals with that by
-# stacking their labels outward along the ray they have in common (see
-# `_stack_labels!`). The same problem exists here, but the 2D answer does not
-# transfer: these labels billboard, so there is no fixed ray to stack along and
-# no reading direction to measure a stack in characters of.
-#
-# They are stacked *upward* instead, along the element's own vertical, by a step
-# set by the element's size. That direction survives the camera moving: it stays
-# a separation on screen from every angle except looking straight down the
-# vertical, and it needs no idea of how wide the text will turn out to be.
-#
-# The run-detection is the 2D rule: labels arrive in branch order, so a group of
-# coincident elements is a run of consecutive entries, each tested against the
-# one before it.
-function _stack_labels3(base, up, anchor, h, sep)
-  pos = copy(base)
-  isempty(pos) && return pos
-  step = 0.0f0
-  for k in 2:length(pos)
-    d = hypot((anchor[k] - anchor[k - 1])...)
-    step = d < sep * 0.5 * (h[k] + h[k - 1]) ? step + 2.2f0 * h[k] : 0.0f0
-    pos[k] = base[k] + step * up[k]
-  end
-  return pos
-end
 
 # Extrude one shape template along an element's reference curve.
 #

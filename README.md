@@ -221,11 +221,19 @@ just a floor plan with an extra axis:
   vertex back to its element. Backends that cannot pick fall back to a
   screen-space search along element centerlines, which needs no GPU — and so
   works headless and in the tests — but has no notion of depth.
-* **Labels.** Text billboards toward the camera, so laying labels across the
-  centerline as the floor plan does means nothing here. Labels that would land on
-  top of each other are stacked *vertically* instead, and are culled harder: they
-  appear only once the view is zoomed in far enough and the element is inside the
-  current limits. A 3D view crowds much faster than a top-down one.
+* **Labels.** Text billboards toward the camera: it is drawn at a fixed size in
+  pixels, facing the viewer, wherever the camera happens to be. So how much room
+  a label needs, and which way "clear of the element" or "up" points for it, are
+  pixel quantities that only exist once there is a camera — none of them can be
+  settled in meters the way the floor plan settles them in a plane it knows will
+  not rotate. The geometry therefore fixes only the anchor, and the labels are
+  laid out in screen space on every camera change: each is pushed clear of its
+  element's *projected* silhouette, and they are placed nearest-camera first
+  against an occupancy grid, so one whose space is taken is bumped up a row (with
+  a leader line back to its element) or dropped. A zoomed-out view shows the
+  labels that fit rather than all of them on top of each other, and the rest
+  appear as you zoom in. `label_sep=0` turns the collision handling off;
+  `label_min_px` sets the smallest an element may appear and still be labelled.
 
 ## Overlays
 

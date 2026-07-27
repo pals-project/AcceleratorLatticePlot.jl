@@ -505,32 +505,120 @@ end
     @test_throws ArgumentError build_geometry3(tab, m; view="zx")
 end
 
-# Coincident elements share a label anchor. The floor plan stacks their labels
-# outward along the ray they share; in 3D, where text billboards, they are
-# stacked vertically instead.
-@testset "3D geometry: colliding labels stack vertically" begin
-    smap = ShapeMap([ele_shape("Instrument", :box, :black; label=:name),
-                     ele_shape("Kicker", :box, :black; label=:name)])
-    coincident = synth_table(names=["pue_a12", "dhca12", "dvca12"],
-                             kinds=["Instrument", "Kicker", "Kicker"],
-                             lengths=[0.0, 0.0, 0.0], x=[0.0, 0.0, 0.0],
-                             z=[10.0, 10.0, 10.0], theta=zeros(3), angle=zeros(3))
-    g = build_geometry3(coincident, smap; view="zxy")
-    @test g.label_str == ["pue_a12", "dhca12", "dvca12"]
-    up = [p[3] for p in g.label_pos]         # drawn vertical is global y
-    @test issorted(up)
-    @test allunique(up)
-    # Horizontally they stay put: the stack is a lift, not a slide.
-    @test allequal([(p[1], p[2]) for p in g.label_pos])
+# The geometry fixes only where a label is anchored -- one half-height off the
+# centerline on the element's +x, with the matching +y probe that lets the
+# renderer measure the element on screen. Nothing about spacing happens here:
+# in 3D that is a screen-space question and belongs to `_layout_labels3`.
+@testset "3D geometry: label anchors straddle the centerline" begin
+    smap = ShapeMap([ele_shape("Widget", :box, :black; size=0.5, size2=0.2,
+                               label=:name)]; defaults=false)
+    tab = synth_table(names=["w"], kinds=["Widget"], lengths=[2.0], x=[0.0],
+                      z=[0.0], theta=[0.0], angle=[0.0])
+    g = build_geometry3(tab, smap; view="zxy")
+    # Drawn axes are (global z, global x, global y); the element runs along +z
+    # unrotated, so its local x is drawn y and its local y is drawn z.
+    @test only(g.label_pos) ≈ Point3f(1.0, 0.52, 0.0)
+    @test only(g.label_probe) ≈ Point3f(1.0, 0.0, 0.22)
+    @test only(g.label_ele) == 1
+    @test g.label_sep == 1.0
 
-    apart = synth_table(names=["a", "b"], kinds=["Instrument", "Kicker"],
-                        lengths=[0.0, 0.0], x=[0.0, 0.0], z=[10.0, 30.0],
+    # Coincident elements come out with coincident anchors: the geometry does
+    # not try to separate them, because it cannot know what "apart" means on a
+    # screen it has not got a camera for.
+    co = synth_table(names=["pue_a12", "dhca12", "dvca12"],
+                     kinds=["Widget", "Widget", "Widget"],
+                     lengths=[0.0, 0.0, 0.0], x=[0.0, 0.0, 0.0],
+                     z=[10.0, 10.0, 10.0], theta=zeros(3), angle=zeros(3))
+    gc = build_geometry3(co, smap; view="zxy")
+    @test gc.label_str == ["pue_a12", "dhca12", "dvca12"]
+    @test allequal(gc.label_pos)
+end
+
+# The layout pass, which is the whole point of the 3D label handling: a label's
+# size, the room it needs and the direction anything moves it in are all pixel
+# quantities, so they are resolved against a live camera rather than baked into
+# the geometry in meters.
+@testset "3D labels are laid out in screen space" begin
+    smap = ShapeMap([ele_shape("Widget", :box, :black; size=0.3, label=:name)];
+                    defaults=false)
+    co = synth_table(names=["pue_a12", "dhca12", "dvca12"],
+                     kinds=fill("Widget", 3), lengths=zeros(3), x=zeros(3),
+                     z=fill(10.0, 3), theta=zeros(3), angle=zeros(3))
+
+    # Where each label actually lands on screen: its anchor, projected, plus the
+    # pixel offset the layout gave it.
+    function screen_at(fp, L)
+        [Makie.project(fp.axis.scene, fp.geometry.label_pos[k]) .+ L.offset[k]
+         for k in eachindex(L.pos) if all(isfinite, L.pos[k])]
+    end
+
+    fp = floor_plot3(co; shapes=smap, size=(900, 700))
+    Makie.update_state_before_display!(fp.figure)
+    L = pp._layout_labels3(fp.geometry, fp.axis.scene, 4, 11)
+
+    # All three are drawn, none on top of another, and the two that had to be
+    # moved to manage it are joined back to their element by a leader.
+    @test count(p -> all(isfinite, p), L.pos) == 3
+    pts = screen_at(fp, L)
+    @test allunique(pts)
+    @test minimum(abs(a[2] - b[2]) for a in pts, b in pts if a !== b) > 11
+    @test length(L.leader) == 2 * 2      # two leaders, two endpoints each
+
+    # Each label clears its own element rather than printing over it, and reads
+    # away from the centerline: left-aligned text sits to the right of the
+    # anchor and vice versa.
+    for k in eachindex(L.pos)
+        all(isfinite, L.pos[k]) || continue
+        @test hypot(L.offset[k]...) > 0
+        @test (L.align[k][1] === :left) == (L.offset[k][1] >= 0)
+    end
+
+    # The property the old data-space stacking did not have: it separated labels
+    # along the element's own vertical, which projects to nothing when you look
+    # straight down it -- and straight down is the default view's own axis. In
+    # screen space there is no camera angle that collapses the separation.
+    for (el, az) in ((pi / 2 - 1.0f-3, 0.0), (0.0, 0.0), (0.3, 1.9), (-0.7, -2.5))
+        fp.axis.elevation[] = el
+        fp.axis.azimuth[] = az
+        Makie.update_state_before_display!(fp.figure)
+        Lr = pp._layout_labels3(fp.geometry, fp.axis.scene, 4, 11)
+        @test count(p -> all(isfinite, p), Lr.pos) == 3
+        @test allunique(screen_at(fp, Lr))
+    end
+end
+
+@testset "3D labels: level of detail and label_sep" begin
+    smap = ShapeMap([ele_shape("Widget", :box, :black; size=0.3, label=:name)];
+                    defaults=false)
+    co = synth_table(names=["pue_a12", "dhca12", "dvca12"],
+                     kinds=fill("Widget", 3), lengths=zeros(3), x=zeros(3),
+                     z=fill(10.0, 3), theta=zeros(3), angle=zeros(3))
+
+    fp = floor_plot3(co; shapes=smap, size=(900, 700))
+    Makie.update_state_before_display!(fp.figure)
+    drawn(L) = count(p -> all(isfinite, p), L.pos)
+
+    # An element smaller on screen than `label_min_px` is not labelled at all.
+    @test drawn(pp._layout_labels3(fp.geometry, fp.axis.scene, 10_000, 11)) == 0
+
+    # `label_sep = 0` turns the collision handling off: the labels are no longer
+    # bumped apart, so only the first to claim the space is drawn.
+    flat = floor_plot3(co; shapes=smap, size=(900, 700), label_sep=0)
+    Makie.update_state_before_display!(flat.figure)
+    Lf = pp._layout_labels3(flat.geometry, flat.axis.scene, 4, 11)
+    @test flat.geometry.label_sep == 0
+    @test drawn(Lf) == 1
+    @test isempty(Lf.leader)
+
+    # And a lattice whose elements are far apart needs no bumping at all.
+    apart = synth_table(names=["a", "b"], kinds=["Widget", "Widget"],
+                        lengths=[1.0, 1.0], x=[0.0, 0.0], z=[0.0, 40.0],
                         theta=zeros(2), angle=zeros(2))
-    ga = build_geometry3(apart, smap; view="zxy")
-    @test ga.label_pos[1][3] == ga.label_pos[2][3]
-
-    off = build_geometry3(coincident, smap; view="zxy", label_sep=0)
-    @test allequal([p[3] for p in off.label_pos])
+    fa = floor_plot3(apart; shapes=smap, size=(900, 700))
+    Makie.update_state_before_display!(fa.figure)
+    La = pp._layout_labels3(fa.geometry, fa.axis.scene, 4, 11)
+    @test drawn(La) == 2
+    @test isempty(La.leader)
 end
 
 @testset "3D geometry: element_outline3 hugs the element" begin
