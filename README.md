@@ -338,25 +338,30 @@ lattice that left the horizontal plane as though it had not — a straight eleme
 came out at its full length instead of its projected length, overshooting by
 `L·(1 − cos φ)`. That is fixed, in both views.
 
-### A caveat on `tilt_ref`
+### A note on `tilt_ref`
 
-For a bend rolled out of its branch's `x`–`z` plane, the standard states the
-bend's coordinate rotation twice and the two statements disagree:
+The standard states a bend's coordinate rotation twice:
 
-* Eq. `ustt` gives it as an axis and angle, `u = (−sin θ_tr, −cos θ_tr, 0)`;
+* Eq. `ustt` gives it as an axis and angle, `u = (sin θ_tr, −cos θ_tr, 0)`;
 * Eq. `srrr` gives it as `S = R_z(θ_tr) R_y(−α_b) R_z(−θ_tr)`.
 
-These are different rotations — the sign of `u`'s first component differs — and
-only the second is consistent with the displacement in Eq. `lrztt`, which is
-`R_z(θ_tr)·L̃`, the untilted bend turned bodily about `z`. Under Eq. `ustt` the
-frame's `z` axis comes off the tangent to the arc it is travelling along, by
-about `2·sin(α_b)·sin(θ_tr)`.
+These are the same rotation, and both are consistent with the displacement in
+Eq. `lrztt`, which is `R_z(θ_tr)·L̃`, the untilted bend turned bodily about `z`.
+The axis is just the untilted axis `(0, −1, 0)` carried around by that same
+`R_z(θ_tr)`. So the frame's `z` axis stays tangent to the arc it is travelling
+along, at any tilt, and `θ_tr = +π/2` is a downward bend in both the heading and
+the displacement.
 
-pals-cpp's `bend_LS` implements Eq. `ustt`, and **AcceleratorLatticePlot follows
-it**: drawing the other convention would open a visible gap at every tilted bend,
-at whose exit face the expander has already written the next element's `FloorP`.
-The tests pin the convention down explicitly, so if pals-cpp switches they fail
-there and say why rather than turning into a mystery about the drawing.
+This is worth stating because it did not always hold. Eq. `ustt` previously read
+`u = (−sin θ_tr, −cos θ_tr, 0)`, which for a bend rolled out of its branch's
+`x`–`z` plane is a *different* rotation from Eq. `srrr`, and left the frame's `z`
+axis off its own tangent by about `2·sin(α_b)·sin(θ_tr)`. pals-cpp's `bend_LS`
+implemented that sign and AcceleratorLatticePlot followed it, to avoid opening a
+visible gap at every tilted bend, at whose exit face the expander has already
+written the next element's `FloorP`. The doc, pals-cpp and this package have
+since been corrected together. The tests check the two forms against each other,
+so a regression on either side fails there and says why rather than turning into
+a mystery about the drawing.
 
 Separately, a `Patch` is drawn as a straight segment of its length: its body does
 not follow the jump its offsets and rotations describe. Nothing else is affected,

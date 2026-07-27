@@ -152,19 +152,20 @@ end
 end
 
 # A tilted bend follows pals-cpp's `bend_LS`, which implements the standard's
-# Eq. ustt. That is a deliberate choice and not an obvious one, because the
-# standard's own alternative form for the same rotation, Eq. srrr, is a *different
-# rotation*: it is the untilted bend conjugated by R_z(tilt_ref), which is what
-# the displacement in Eq. lrztt already is, whereas Eq. ustt flips the sign of the
-# rotation axis's first component. Under Eq. ustt the frame's z axis leaves the
-# tangent to its own arc.
+# Eq. ustt. The standard gives that same rotation twice -- as an axis and angle
+# (Eq. ustt) and as a conjugation by R_z(tilt_ref) (Eq. srrr) -- and the two
+# agree, both with each other and with the displacement of Eq. lrztt, which is
+# the untilted bend turned bodily about z by the same R_z(tilt_ref). So the
+# frame's z axis stays tangent to the arc it is travelling along, at any tilt.
 #
-# AcceleratorLatticePlot follows the expander so that the drawing meets the
-# `FloorP` the expander wrote at the bend's exit face (see the closure tests
-# below). These tests exist to say which convention that is out loud: if pals-cpp
-# switches to Eq. srrr, they fail here and point at the reason.
+# This is worth pinning down because it did not always hold: Eq. ustt used to
+# read u = (-sin θ_tr, -cos θ_tr, 0), a different rotation for a rolled bend,
+# and the frame came off its own tangent by about 2 sin(α_b) sin(θ_tr). The doc,
+# pals-cpp and this package have all been corrected together; these tests fail on
+# either side of a regression rather than letting a tilted bend quietly open a
+# gap against the `FloorP` the expander wrote at its exit face.
 @testset "tilted bends follow the expander's convention" begin
-    ustt(a, t) = alp.axis_angle(alp.Vec3d(-sin(t), -cos(t), 0.0), a)
+    ustt(a, t) = alp.axis_angle(alp.Vec3d(sin(t), -cos(t), 0.0), a)
     srrr(a, t) = alp.rot_z(t) * (alp.rot_y(-a) * alp.rot_z(-t))
     r0 = alp.Vec3d(0.0, 0.0, 0.0)
 
@@ -172,21 +173,24 @@ end
         p = alp.place(r0, alp.I3, 2.0, a, t, 1.0)
         @test isapprox(alp.zaxis(p.W), alp.zaxis(ustt(a, t)); atol=1e-9)
 
-        # The two forms really are different rotations, so following one rather
-        # than the other is a choice with consequences.
-        @test !isapprox(alp.zaxis(ustt(a, t)), alp.zaxis(srrr(a, t)); atol=1e-3)
+        # The two forms are the same rotation -- all three axes, not merely the
+        # same heading.
+        @test isapprox(alp.xaxis(ustt(a, t)), alp.xaxis(srrr(a, t)); atol=1e-9)
+        @test isapprox(alp.yaxis(ustt(a, t)), alp.yaxis(srrr(a, t)); atol=1e-9)
+        @test isapprox(alp.zaxis(ustt(a, t)), alp.zaxis(srrr(a, t)); atol=1e-9)
 
-        # ...and it is Eq. srrr whose frame stays tangent to the arc the
+        # ...and that rotation keeps the frame tangent to the arc the
         # displacement of Eq. lrztt traces out.
         tangent = alp.rot_z(t) * alp.Vec3d(-sin(a), 0.0, cos(a))
-        @test isapprox(alp.zaxis(srrr(a, t)), tangent; atol=1e-9)
-        @test !isapprox(alp.zaxis(ustt(a, t)), tangent; atol=1e-3)
+        @test isapprox(alp.zaxis(ustt(a, t)), tangent; atol=1e-9)
+        @test isapprox(alp.zaxis(p.W), tangent; atol=1e-9)
     end
 
-    # With no tilt the question does not arise: the two forms coincide.
-    for a in (0.4, -0.9)
-        @test isapprox(alp.zaxis(ustt(a, 0.0)), alp.zaxis(srrr(a, 0.0)); atol=1e-12)
-    end
+    # tilt_ref = +pi/2 is a downward bend: the heading tips toward -y, the same
+    # way the displacement goes.
+    p = alp.place(r0, alp.I3, 2.0, 0.4, π / 2, 1.0)
+    @test alp.zaxis(p.W)[2] < 0
+    @test p.r[2] < 0
 end
 
 @testset "rule precedence and globbing" begin
@@ -849,7 +853,7 @@ const HELIX = normpath(joinpath(@__DIR__, "..", "examples", "helix.pals.yaml"))
     # over its own start about 11 m higher.
     @test isapprox(tab.x[end], tab.x[1]; atol=1e-9)
     @test isapprox(tab.z[end], tab.z[1]; atol=1e-9)
-    @test isapprox(tab.y[end] - tab.y[1], 11.04; atol=0.01)
+    @test isapprox(tab.y[end] - tab.y[1], 11.15; atol=0.01)
     @test isapprox(tab.theta[end] - tab.theta[1], 0.0; atol=1e-9) ||
           isapprox(abs(tab.theta[end] - tab.theta[1]), 2pi; atol=1e-9)
 

@@ -34,12 +34,14 @@ PALS:
         length: 3.0
 
     # tilt_ref = pi/2 rolls the bend plane a quarter turn about the beam axis:
-    # this bends in the vertical plane, pitching the beam up by 0.25 rad.
+    # this bends in the vertical plane, pitching the beam up by 0.25 rad. A
+    # positive angle_ref at this tilt bends *downward* (Eq. srrr), so pitching up
+    # is the negative angle.
     - b_up:
         kind: Bend
         length: 1.5
         BendP:
-          angle_ref: 0.25
+          angle_ref: -0.25
           tilt_ref: 1.5707963267948966
 
     # The same tilt with the opposite angle takes the pitch back out, so each
@@ -48,7 +50,7 @@ PALS:
         kind: Bend
         length: 1.5
         BendP:
-          angle_ref: -0.25
+          angle_ref: 0.25
           tilt_ref: 1.5707963267948966
 
     # The horizontal arc: untilted, so it turns the heading rather than the
