@@ -87,16 +87,8 @@ PALS:
         kind: BeamLine
         line:
           - beg
-          - cell
-          - cell
-          - cell
-          - cell
-          - cell
-          - cell
-          - cell
-          - cell
-          - cell
-          - cell
+          - cell:
+              repeat: 10
 
     - lat:
         kind: Lattice
