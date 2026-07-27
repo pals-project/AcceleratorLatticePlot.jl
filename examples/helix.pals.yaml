@@ -1,8 +1,8 @@
 # A small three-dimensional lattice: a helical ramp.
 #
 # Ten identical cells, each of which turns the beam 36 degrees in the horizontal
-# plane and lifts it about 1.1 m. So the line closes on itself in azimuth after
-# one turn and arrives back over its own start, some 11 m higher -- a spiral
+# plane and lifts it about 1.12 m. So the line closes on itself in azimuth after
+# one turn and arrives back over its own start, some 11.15 m higher -- a spiral
 # staircase.
 #
 # The lift is what `tilt_ref` is for. A Bend's `tilt_ref` rolls its bend plane
@@ -10,6 +10,9 @@
 # than horizontally: `b_up` pitches the beam up, the long drift `d_climb` runs
 # uphill, and `b_dn` levels it off again before the horizontal arc bend `b_arc`
 # -- which has no tilt at all -- turns the corner.
+#
+# Watch the sign: at `tilt_ref: pi/2` a positive `angle_ref` bends *downward*
+# (the standard's Eq. srrr), so it is `b_up` that carries the negative angle.
 #
 # This is the lattice a floor plan cannot show: projected onto the horizontal
 # plane all ten cells lie on top of each other, as one circle.

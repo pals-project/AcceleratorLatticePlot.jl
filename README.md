@@ -224,13 +224,15 @@ display(fp)
 
 *`examples/helix.pals.yaml`, a small lattice that exists to be three
 dimensional: ten identical cells, each turning the beam 36° in the horizontal
-plane and lifting it about 1.1 m, so the line closes on itself in plan and comes
-back over its own start 11 m higher. The lift is `tilt_ref`'s doing — the
+plane and lifting it about 1.12 m, so the line closes on itself in plan and comes
+back over its own start 11.15 m higher. The lift is `tilt_ref`'s doing — the
 selected `b_up`, whose parameters are in the panel, is a Bend with `tilt_ref`
 = π/2, which rolls its bend plane a quarter turn about the beam axis so that it
-bends vertically instead of horizontally. This is the lattice a floor plan
-cannot show: projected onto the horizontal plane the ten cells lie on top of
-each other, as one circle.*
+bends vertically instead of horizontally. At that tilt a *positive* `angle_ref`
+bends downward, so `b_up` climbs with `angle_ref = −0.25`; see [A note on
+`tilt_ref`](#a-note-on-tilt_ref). This is the lattice a floor plan cannot show:
+projected onto the horizontal plane the ten cells lie on top of each other, as
+one circle.*
 
 ```console
 julia --project=. examples/floor_plan_3d.jl examples/helix.pals.yaml
