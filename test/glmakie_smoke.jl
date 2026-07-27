@@ -73,3 +73,48 @@ end
         @test pp._pick3(fp.geometry, fp.axis, px) == i
     end
 end
+
+# Labels are laid out against the live camera, and their leader lines are drawn
+# in `space = :pixel`. Both go through the backend's projection rather than
+# through anything PALSPlot computes itself, so a backend is the only place they
+# can be checked -- and GLMakie is the one this view is meant for.
+@testset "GLMakie lays out 3D labels against a live camera" begin
+    # Three elements on the same point, the case that forces the layout to
+    # separate labels and to draw leaders back to what they name.
+    tab = pp.ElementTable(["pue_a12", "dhca12", "dvca12"],
+                          ["Instrument", "Kicker", "Kicker"], zeros(3),
+                          zeros(3), zeros(3), fill(10.0, 3), zeros(3), zeros(3),
+                          fill(10.0, 3), ones(Int, 3), fill(NODE, 3), ["b"])
+
+    fp = floor_plot3(tab; title="smoke labels", size=(900, 700))
+    screen = GLMakie.Screen(; visible=false)
+    display(screen, fp.figure)
+    Makie.colorbuffer(screen)
+
+    L = pp._layout_labels3(fp.geometry, fp.axis.scene, 4, 11)
+    @test count(p -> all(isfinite, p), L.pos) == 3
+    @test length(L.leader) == 4          # two leaders, two endpoints each
+
+    # The leaders reach the rasterizer, rather than merely being computed:
+    # hiding them has to change the picture. `space = :pixel` is the one thing
+    # here that CairoMakie cannot vouch for on GLMakie's behalf.
+    leaders = only(p for p in fp.axis.scene.plots
+                     if p isa Makie.LineSegments && to_value(p.space) === :pixel)
+    @test length(leaders[1][]) == 4
+    lit = copy(Makie.colorbuffer(screen))
+    leaders.visible[] = false
+    @test count(lit .!= Makie.colorbuffer(screen)) > 0
+    leaders.visible[] = true
+
+    # No two land on the same pixels, from any camera angle.
+    for (el, az) in ((pi / 2 - 1.0f-3, 0.0), (0.3, 1.9), (-0.7, -2.5))
+        fp.axis.elevation[] = el
+        fp.axis.azimuth[] = az
+        Makie.colorbuffer(screen)
+        Lr = pp._layout_labels3(fp.geometry, fp.axis.scene, 4, 11)
+        at = [Makie.project(fp.axis.scene, fp.geometry.label_pos[k]) .+ Lr.offset[k]
+              for k in eachindex(Lr.pos) if all(isfinite, Lr.pos[k])]
+        @test length(at) == 3
+        @test allunique(at)
+    end
+end
