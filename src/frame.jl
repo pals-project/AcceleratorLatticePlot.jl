@@ -140,9 +140,10 @@ element's `FloorP` rather than merely coming near it.
   # along, by about 2 sin(α_b) sin(θ_tr).
   #
   # pals-cpp's `bend_LS` implements Eq. ustt, and that is what is followed here:
-  # PALSPlot's business is to draw the lattice the expander built, and using the
-  # other convention would open a visible gap at every tilted bend, at the exit
-  # face of which the expander has already written the next element's `FloorP`.
+  # AcceleratorLatticePlot's business is to draw the lattice the expander built,
+  # and using the other convention would open a visible gap at every tilted bend,
+  # at the exit face of which the expander has already written the next element's
+  # `FloorP`.
   # The `place` tests pin this down, so if pals-cpp changes they fail here rather
   # than turning into a mystery about the drawing.
   rho = len / angle

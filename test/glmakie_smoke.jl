@@ -1,26 +1,26 @@
 # The GLMakie path, which the main suite deliberately does not cover.
 #
-# PALSPlot depends on Makie rather than on a backend, and `runtests.jl` renders
-# through CairoMakie because that works on any machine. GLMakie is what an actual
-# user opens a window with, though, so it needs checking somewhere -- but it
-# needs a real OpenGL context, which a headless macOS CI runner cannot provide at
-# all (GLMakie will not even precompile there). So this lives outside the suite
-# and is run only where a context is available: a developer's machine, or Linux
-# CI under xvfb.
+# AcceleratorLatticePlot depends on Makie rather than on a backend, and
+# `runtests.jl` renders through CairoMakie because that works on any machine.
+# GLMakie is what an actual user opens a window with, though, so it needs
+# checking somewhere -- but it needs a real OpenGL context, which a headless
+# macOS CI runner cannot provide at all (GLMakie will not even precompile there).
+# So this lives outside the suite and is run only where a context is available: a
+# developer's machine, or Linux CI under xvfb.
 #
 # Run with GLMakie available:
 #     julia --project=. test/glmakie_smoke.jl
 
 using Test
 using GLMakie
-using PALSPlot
-import PALSPlot as pp
+using AcceleratorLatticePlot
+import AcceleratorLatticePlot as alp
 import PALSJulia as pj
 
 const NODE = pj.parse_string("kind: Drift\n")
 
 @testset "GLMakie renders a floor plan" begin
-    tab = pp.ElementTable(["q1", "b1"], ["Quadrupole", "Bend"], [0.5, 1.0],
+    tab = alp.ElementTable(["q1", "b1"], ["Quadrupole", "Bend"], [0.5, 1.0],
                           [0.0, 0.0], [0.0, 0.0], [0.0, 0.5], [0.0, 0.0],
                           [0.0, 0.2], [0.0, 0.5], [1, 1], fill(NODE, 2), ["b"])
 
@@ -48,7 +48,7 @@ end
 @testset "GLMakie renders a 3D drawing, and picks from it" begin
     #                     name          kind          length  x  y  z  theta
     #                     angle  tilt   s  branch  node  branch_names
-    tab = pp.ElementTable(["q1", "b1", "s1"], ["Quadrupole", "Bend", "Sextupole"],
+    tab = alp.ElementTable(["q1", "b1", "s1"], ["Quadrupole", "Bend", "Sextupole"],
                           [0.5, 1.0, 0.4], zeros(3), zeros(3), [0.0, 2.0, 6.0],
                           zeros(3), zeros(3), [0.0, 2.0, 6.0], ones(Int, 3),
                           fill(NODE, 3), ["b"])
@@ -70,18 +70,19 @@ end
 
     for i in 1:3
         px = Makie.project(fp.axis.scene, fp.geometry.ele_center[i])
-        @test pp._pick3(fp.geometry, fp.axis, px) == i
+        @test alp._pick3(fp.geometry, fp.axis, px) == i
     end
 end
 
 # Labels are laid out against the live camera, and their leader lines are drawn
 # in `space = :pixel`. Both go through the backend's projection rather than
-# through anything PALSPlot computes itself, so a backend is the only place they
-# can be checked -- and GLMakie is the one this view is meant for.
+# through anything AcceleratorLatticePlot computes itself, so a backend is the
+# only place they can be checked -- and GLMakie is the one this view is meant
+# for.
 @testset "GLMakie lays out 3D labels against a live camera" begin
     # Three elements on the same point, the case that forces the layout to
     # separate labels and to draw leaders back to what they name.
-    tab = pp.ElementTable(["pue_a12", "dhca12", "dvca12"],
+    tab = alp.ElementTable(["pue_a12", "dhca12", "dvca12"],
                           ["Instrument", "Kicker", "Kicker"], zeros(3),
                           zeros(3), zeros(3), fill(10.0, 3), zeros(3), zeros(3),
                           fill(10.0, 3), ones(Int, 3), fill(NODE, 3), ["b"])
@@ -91,7 +92,7 @@ end
     display(screen, fp.figure)
     Makie.colorbuffer(screen)
 
-    L = pp._layout_labels3(fp.geometry, fp.axis.scene, 4, 11)
+    L = alp._layout_labels3(fp.geometry, fp.axis.scene, 4, 11)
     @test count(p -> all(isfinite, p), L.pos) == 3
     @test length(L.leader) == 4          # two leaders, two endpoints each
 
@@ -111,7 +112,7 @@ end
         fp.axis.elevation[] = el
         fp.axis.azimuth[] = az
         Makie.colorbuffer(screen)
-        Lr = pp._layout_labels3(fp.geometry, fp.axis.scene, 4, 11)
+        Lr = alp._layout_labels3(fp.geometry, fp.axis.scene, 4, 11)
         at = [Makie.project(fp.axis.scene, fp.geometry.label_pos[k]) .+ Lr.offset[k]
               for k in eachindex(Lr.pos) if all(isfinite, Lr.pos[k])]
         @test length(at) == 3

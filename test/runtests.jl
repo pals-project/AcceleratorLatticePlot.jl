@@ -1,13 +1,13 @@
 using Test
-using PALSPlot
+using AcceleratorLatticePlot
 using PALSJulia          # for parse_and_expand_pals in the extraction tests
-import PALSPlot as pp
+import AcceleratorLatticePlot as alp
 import PALSJulia as pj
 
-# CairoMakie is the backend under test. PALSPlot itself depends only on Makie, so
-# a backend is needed here purely to prove the figures render -- and Cairo is
-# pure software, which means these tests run anywhere, including the CI runners
-# that cannot give GLMakie an OpenGL context.
+# CairoMakie is the backend under test. AcceleratorLatticePlot itself depends
+# only on Makie, so a backend is needed here purely to prove the figures render
+# -- and Cairo is pure software, which means these tests run anywhere, including
+# the CI runners that cannot give GLMakie an OpenGL context.
 #
 # Loading a Makie backend and then calling into the pals-cpp parser is also the
 # pairing that aborts the process when the library was built against the wrong
@@ -16,7 +16,7 @@ using CairoMakie
 
 # Triangle vertex indices as plain Ints. Faces are GeometryBasics `OffsetInteger`
 # triples, which index correctly but do not convert to Int on their own.
-faceverts(f) = Int.(pp.GeometryBasics.value.(Tuple(f)))
+faceverts(f) = Int.(alp.GeometryBasics.value.(Tuple(f)))
 
 # A throwaway node to fill ElementTable.node in synthetic tables.
 const NODE = pj.parse_string("kind: Drift\n")
@@ -28,7 +28,7 @@ function synth_table(; names, kinds, lengths, x, z, theta, angle,
                      y=nothing, phi=nothing, psi=nothing, tilt=nothing)
     n = length(names)
     zed(v) = v === nothing ? zeros(n) : collect(v)
-    return pp.ElementTable(collect(names), collect(kinds), collect(lengths),
+    return alp.ElementTable(collect(names), collect(kinds), collect(lengths),
                            collect(x), zed(y), collect(z), collect(theta),
                            zed(phi), zed(psi), collect(angle), zed(tilt),
                            collect(z), ones(Int, n), fill(NODE, n), ["b"])
@@ -78,28 +78,28 @@ end
 @testset "W matrix" begin
     for (th, ph, ps) in ((0.0, 0.0, 0.0), (0.3, 0.0, 0.0), (0.3, -0.2, 0.7),
                          (-1.1, 0.4, -0.9), (2.8, -0.63, -2.17))
-        W = pp.w_matrix(th, ph, ps)
+        W = alp.w_matrix(th, ph, ps)
 
         # The direction of travel is the third column, which the standard gives
         # in closed form.
-        z = pp.zaxis(W)
+        z = alp.zaxis(W)
         @test isapprox(z[1], sin(th) * cos(ph); atol=1e-12)
         @test isapprox(z[2], -sin(ph); atol=1e-12)
         @test isapprox(z[3], cos(th) * cos(ph); atol=1e-12)
 
         # ...and W is a rotation: its columns are orthonormal and right-handed.
-        cols = (pp.xaxis(W), pp.yaxis(W), pp.zaxis(W))
+        cols = (alp.xaxis(W), alp.yaxis(W), alp.zaxis(W))
         for (i, u) in enumerate(cols), (j, v) in enumerate(cols)
-            @test isapprox(pp.dot3(u, v), i == j ? 1.0 : 0.0; atol=1e-12)
+            @test isapprox(alp.dot3(u, v), i == j ? 1.0 : 0.0; atol=1e-12)
         end
-        @test isapprox(pp.dot3(pp.cross3(cols[1], cols[2]), cols[3]), 1.0; atol=1e-6)
+        @test isapprox(alp.dot3(alp.cross3(cols[1], cols[2]), cols[3]), 1.0; atol=1e-6)
     end
 
     # With no pitch or roll it is a heading in the horizontal plane, which is all
     # the drawing used to know about.
-    W = pp.w_matrix(0.7, 0.0, 0.0)
-    @test isapprox(pp.zaxis(W), pp.Vec3d(sin(0.7), 0, cos(0.7)); atol=1e-12)
-    @test isapprox(pp.xaxis(W), pp.Vec3d(cos(0.7), 0, -sin(0.7)); atol=1e-12)
+    W = alp.w_matrix(0.7, 0.0, 0.0)
+    @test isapprox(alp.zaxis(W), alp.Vec3d(sin(0.7), 0, cos(0.7)); atol=1e-12)
+    @test isapprox(alp.xaxis(W), alp.Vec3d(cos(0.7), 0, -sin(0.7)); atol=1e-12)
 end
 
 # `place` is pals-cpp's floor_propagate applied to straight_LS/bend_LS, evaluated
@@ -107,48 +107,48 @@ end
 # the property that matters most: propagating in steps must agree with
 # propagating in one go, since that is what carrying a shape along an arc does.
 @testset "reference-curve propagation" begin
-    r0 = pp.Vec3d(1.0, 2.0, 3.0)
-    W0 = pp.w_matrix(0.4, -0.2, 0.9)
+    r0 = alp.Vec3d(1.0, 2.0, 3.0)
+    W0 = alp.w_matrix(0.4, -0.2, 0.9)
 
     # f = 0 is the element's own upstream placement, untouched.
-    p = pp.place(r0, W0, 5.0, 0.3, 0.1, 0.0)
+    p = alp.place(r0, W0, 5.0, 0.3, 0.1, 0.0)
     @test isapprox(p.r, r0; atol=1e-12)
-    @test isapprox(pp.zaxis(p.W), pp.zaxis(W0); atol=1e-12)
+    @test isapprox(alp.zaxis(p.W), alp.zaxis(W0); atol=1e-12)
 
     # Straight: L = (0, 0, len) in the branch frame, orientation unchanged.
-    p = pp.place(r0, W0, 5.0, 0.0, 0.0, 1.0)
-    @test isapprox(p.r, r0 + 5.0 * pp.zaxis(W0); atol=1e-12)
-    @test isapprox(pp.xaxis(p.W), pp.xaxis(W0); atol=1e-12)
+    p = alp.place(r0, W0, 5.0, 0.0, 0.0, 1.0)
+    @test isapprox(p.r, r0 + 5.0 * alp.zaxis(W0); atol=1e-12)
+    @test isapprox(alp.xaxis(p.W), alp.xaxis(W0); atol=1e-12)
 
     # Bend, untilted (Eq. lrztt): rho*sin(angle) along z, rho*(cos(angle)-1)
     # along x -- a positive angle moving the exit toward negative branch x.
     len, ang = 4.0, 0.7
     rho = len / ang
-    p = pp.place(r0, W0, len, ang, 0.0, 1.0)
-    expect = r0 + rho * sin(ang) * pp.zaxis(W0) + rho * (cos(ang) - 1) * pp.xaxis(W0)
+    p = alp.place(r0, W0, len, ang, 0.0, 1.0)
+    expect = r0 + rho * sin(ang) * alp.zaxis(W0) + rho * (cos(ang) - 1) * alp.xaxis(W0)
     @test isapprox(p.r, expect; atol=1e-12)
 
     # A tilt of pi/2 rolls the same arc into the vertical plane: what was a
     # displacement along branch x becomes one along branch y.
-    p = pp.place(r0, W0, len, ang, π / 2, 1.0)
-    expect = r0 + rho * sin(ang) * pp.zaxis(W0) + rho * (cos(ang) - 1) * pp.yaxis(W0)
+    p = alp.place(r0, W0, len, ang, π / 2, 1.0)
+    expect = r0 + rho * sin(ang) * alp.zaxis(W0) + rho * (cos(ang) - 1) * alp.yaxis(W0)
     @test isapprox(p.r, expect; atol=1e-9)
 
     # Propagation composes: half an element, then half again from there, is the
     # whole element. A drawing that got this wrong would still start and end in
     # the right places while bulging in between.
     for ang in (0.0, 0.7, -0.4)
-        whole = pp.place(r0, W0, len, ang, 0.0, 1.0)
-        half = pp.place(r0, W0, len, ang, 0.0, 0.5)
-        rest = pp.place(half.r, half.W, len / 2, ang / 2, 0.0, 1.0)
+        whole = alp.place(r0, W0, len, ang, 0.0, 1.0)
+        half = alp.place(r0, W0, len, ang, 0.0, 0.5)
+        rest = alp.place(half.r, half.W, len / 2, ang / 2, 0.0, 1.0)
         @test isapprox(whole.r, rest.r; atol=1e-9)
-        @test isapprox(pp.zaxis(whole.W), pp.zaxis(rest.W); atol=1e-9)
-        @test isapprox(pp.xaxis(whole.W), pp.xaxis(rest.W); atol=1e-9)
+        @test isapprox(alp.zaxis(whole.W), alp.zaxis(rest.W); atol=1e-9)
+        @test isapprox(alp.xaxis(whole.W), alp.xaxis(rest.W); atol=1e-9)
     end
 
     # A bend of vanishing angle is a straight element, not a division by zero.
-    p = pp.place(r0, W0, 2.0, 0.0, 0.4, 1.0)
-    @test isapprox(p.r, r0 + 2.0 * pp.zaxis(W0); atol=1e-12)
+    p = alp.place(r0, W0, 2.0, 0.0, 0.4, 1.0)
+    @test isapprox(p.r, r0 + 2.0 * alp.zaxis(W0); atol=1e-12)
 end
 
 # A tilted bend follows pals-cpp's `bend_LS`, which implements the standard's
@@ -159,33 +159,33 @@ end
 # rotation axis's first component. Under Eq. ustt the frame's z axis leaves the
 # tangent to its own arc.
 #
-# PALSPlot follows the expander so that the drawing meets the `FloorP` the
-# expander wrote at the bend's exit face (see the closure tests below). These
-# tests exist to say which convention that is out loud: if pals-cpp switches to
-# Eq. srrr, they fail here and point at the reason.
+# AcceleratorLatticePlot follows the expander so that the drawing meets the
+# `FloorP` the expander wrote at the bend's exit face (see the closure tests
+# below). These tests exist to say which convention that is out loud: if pals-cpp
+# switches to Eq. srrr, they fail here and point at the reason.
 @testset "tilted bends follow the expander's convention" begin
-    ustt(a, t) = pp.axis_angle(pp.Vec3d(-sin(t), -cos(t), 0.0), a)
-    srrr(a, t) = pp.rot_z(t) * (pp.rot_y(-a) * pp.rot_z(-t))
-    r0 = pp.Vec3d(0.0, 0.0, 0.0)
+    ustt(a, t) = alp.axis_angle(alp.Vec3d(-sin(t), -cos(t), 0.0), a)
+    srrr(a, t) = alp.rot_z(t) * (alp.rot_y(-a) * alp.rot_z(-t))
+    r0 = alp.Vec3d(0.0, 0.0, 0.0)
 
     for (a, t) in ((0.4, 0.3), (0.4, π / 2), (-0.9, 1.3))
-        p = pp.place(r0, pp.I3, 2.0, a, t, 1.0)
-        @test isapprox(pp.zaxis(p.W), pp.zaxis(ustt(a, t)); atol=1e-9)
+        p = alp.place(r0, alp.I3, 2.0, a, t, 1.0)
+        @test isapprox(alp.zaxis(p.W), alp.zaxis(ustt(a, t)); atol=1e-9)
 
         # The two forms really are different rotations, so following one rather
         # than the other is a choice with consequences.
-        @test !isapprox(pp.zaxis(ustt(a, t)), pp.zaxis(srrr(a, t)); atol=1e-3)
+        @test !isapprox(alp.zaxis(ustt(a, t)), alp.zaxis(srrr(a, t)); atol=1e-3)
 
         # ...and it is Eq. srrr whose frame stays tangent to the arc the
         # displacement of Eq. lrztt traces out.
-        tangent = pp.rot_z(t) * pp.Vec3d(-sin(a), 0.0, cos(a))
-        @test isapprox(pp.zaxis(srrr(a, t)), tangent; atol=1e-9)
-        @test !isapprox(pp.zaxis(ustt(a, t)), tangent; atol=1e-3)
+        tangent = alp.rot_z(t) * alp.Vec3d(-sin(a), 0.0, cos(a))
+        @test isapprox(alp.zaxis(srrr(a, t)), tangent; atol=1e-9)
+        @test !isapprox(alp.zaxis(ustt(a, t)), tangent; atol=1e-3)
     end
 
     # With no tilt the question does not arise: the two forms coincide.
     for a in (0.4, -0.9)
-        @test isapprox(pp.zaxis(ustt(a, 0.0)), pp.zaxis(srrr(a, 0.0)); atol=1e-12)
+        @test isapprox(alp.zaxis(ustt(a, 0.0)), alp.zaxis(srrr(a, 0.0)); atol=1e-12)
     end
 end
 
@@ -203,7 +203,7 @@ end
 @testset "geometry: straight box placement" begin
     tab = synth_table(names=["s1"], kinds=["Sextupole"], lengths=[0.4],
                       x=[0.0], z=[0.0], theta=[0.0], angle=[0.0])
-    g = pp.build_geometry(tab, ShapeMap(); view="zx")
+    g = alp.build_geometry(tab, ShapeMap(); view="zx")
     @test length(g.ele_center) == 1
     # midpoint at f=0.5 -> (z, x) = (0.2, 0)
     @test isapprox(g.ele_center[1][1], 0.2; atol=1e-5)
@@ -218,16 +218,16 @@ end
 @testset "geometry: xbox has interior X" begin
     tab = synth_table(names=["q1"], kinds=["Quadrupole"], lengths=[0.3],
                       x=[0.0], z=[0.0], theta=[0.0], angle=[0.0])
-    g = pp.build_geometry(tab, ShapeMap(); view="zx")
+    g = alp.build_geometry(tab, ShapeMap(); view="zx")
     @test length(g.seg_pts) == 4        # two diagonal segments
 end
 
 @testset "geometry: bend follows an arc" begin
-    straight = pp.build_geometry(
+    straight = alp.build_geometry(
         synth_table(names=["b"], kinds=["Bend"], lengths=[1.0],
                     x=[0.0], z=[0.0], theta=[0.0], angle=[0.0]),
         ShapeMap(); view="zx")
-    bent = pp.build_geometry(
+    bent = alp.build_geometry(
         synth_table(names=["b"], kinds=["Bend"], lengths=[1.0],
                     x=[0.0], z=[0.0], theta=[0.0], angle=[0.6]),
         ShapeMap(); view="zx")
@@ -238,8 +238,8 @@ end
 @testset "geometry: view selects projection plane" begin
     tab = synth_table(names=["d"], kinds=["Sextupole"], lengths=[1.0],
                       x=[0.0], z=[0.0], theta=[0.0], angle=[0.0])
-    gzx = pp.build_geometry(tab, ShapeMap(); view="zx")  # horiz=z
-    gxz = pp.build_geometry(tab, ShapeMap(); view="xz")  # horiz=x
+    gzx = alp.build_geometry(tab, ShapeMap(); view="zx")  # horiz=z
+    gxz = alp.build_geometry(tab, ShapeMap(); view="xz")  # horiz=x
     @test isapprox(gzx.ele_center[1][1], 0.5; atol=1e-5)  # advances along z
     @test isapprox(gxz.ele_center[1][2], 0.5; atol=1e-5)  # ...now on vertical axis
 end
@@ -252,8 +252,8 @@ end
 @testset "geometry: swapping the view axes transposes the drawing" begin
     tab = synth_table(names=["b"], kinds=["Bend"], lengths=[2.0],
                       x=[0.0], z=[0.0], theta=[0.3], angle=[0.7])
-    gzx = pp.build_geometry(tab, ShapeMap(); view="zx")
-    gxz = pp.build_geometry(tab, ShapeMap(); view="xz")
+    gzx = alp.build_geometry(tab, ShapeMap(); view="zx")
+    gxz = alp.build_geometry(tab, ShapeMap(); view="xz")
     @test length(gzx.outline_pts) == length(gxz.outline_pts)
     for (p, q) in zip(gzx.outline_pts, gxz.outline_pts)
         if isnan(p[1])
@@ -272,13 +272,13 @@ end
 @testset "geometry: a positive bend angle curves toward -x" begin
     tab = synth_table(names=["b"], kinds=["Bend"], lengths=[1.0],
                       x=[0.0], z=[0.0], theta=[0.0], angle=[0.5])
-    g = pp.build_geometry(tab, ShapeMap(); view="zx")
+    g = alp.build_geometry(tab, ShapeMap(); view="zx")
     @test g.ele_center[1][2] < 0            # midpoint has swung to -x
     @test g.ele_center[1][1] > 0            # ...while still advancing along z
     # and the mirror image for a negative angle
     tabm = synth_table(names=["b"], kinds=["Bend"], lengths=[1.0],
                        x=[0.0], z=[0.0], theta=[0.0], angle=[-0.5])
-    gm = pp.build_geometry(tabm, ShapeMap(); view="zx")
+    gm = alp.build_geometry(tabm, ShapeMap(); view="zx")
     @test isapprox(gm.ele_center[1][2], -g.ele_center[1][2]; atol=1e-5)
     @test isapprox(gm.ele_center[1][1], g.ele_center[1][1]; atol=1e-5)
 end
@@ -286,11 +286,11 @@ end
 # Every shape must produce drawable geometry: no error, no NaN except the loop
 # separators, and something actually emitted for the shapes that draw.
 @testset "geometry: every shape renders" begin
-    for shape in pp.SHAPE_NAMES
+    for shape in alp.SHAPE_NAMES
         tab = synth_table(names=["e"], kinds=["Widget"], lengths=[1.0],
                           x=[0.0], z=[0.0], theta=[0.4], angle=[0.3])
         m = ShapeMap([ele_shape("Widget", shape, :black; size=0.5)]; defaults=false)
-        g = pp.build_geometry(tab, m; view="zx")
+        g = alp.build_geometry(tab, m; view="zx")
         pts = vcat(g.outline_pts, g.seg_pts)
         finite = filter(p -> !isnan(p[1]), pts)
         @test all(p -> isfinite(p[1]) && isfinite(p[2]), finite)
@@ -304,13 +304,13 @@ end
 @testset "geometry: label content follows the rule" begin
     tab = synth_table(names=["q1"], kinds=["Quadrupole"], lengths=[1.0],
                       x=[0.0], z=[7.0], theta=[0.0], angle=[0.0])
-    byname = pp.build_geometry(tab, ShapeMap([ele_shape("Quadrupole", :box, :black;
+    byname = alp.build_geometry(tab, ShapeMap([ele_shape("Quadrupole", :box, :black;
                                                         label=:name)]); view="zx")
     @test byname.label_str == ["q1"]
-    bys = pp.build_geometry(tab, ShapeMap([ele_shape("Quadrupole", :box, :black;
+    bys = alp.build_geometry(tab, ShapeMap([ele_shape("Quadrupole", :box, :black;
                                                      label=:s)]); view="zx")
     @test bys.label_str == ["7.0"]          # synth_table uses z as s
-    none = pp.build_geometry(tab, ShapeMap([ele_shape("Quadrupole", :box, :black;
+    none = alp.build_geometry(tab, ShapeMap([ele_shape("Quadrupole", :box, :black;
                                                       label=:none)]); view="zx")
     @test isempty(none.label_str)
 end
@@ -324,7 +324,7 @@ end
     for (k, th) in enumerate(range(0, 2π, length=17)[1:16])
         tab = synth_table(names=["q$k"], kinds=["Quadrupole"], lengths=[1.0],
                           x=[0.0], z=[0.0], theta=[th], angle=[0.0])
-        g = pp.build_geometry(tab, smap; view="zx")
+        g = alp.build_geometry(tab, smap; view="zx")
         rot = only(g.label_rot)
 
         # Always readable: never upside down, never past the vertical.
@@ -333,7 +333,7 @@ end
         # And perpendicular to the element: the centerline runs along ĝ, the
         # text along the rotation, so the two are a right angle apart (mod π,
         # since the readability fold can reverse the text direction).
-        gx, gy, = pp.proj_axes('z', 'x', pp.w_matrix(th, 0, 0))
+        gx, gy, = alp.proj_axes('z', 'x', alp.w_matrix(th, 0, 0))
         along = atan(gy, gx)
         @test isapprox(mod(rot - along, π), π / 2; atol = 1e-5)
     end
@@ -343,8 +343,8 @@ end
     for th in (0.0, π)          # normal points +x on one, -x on the other
         tab = synth_table(names=["q1"], kinds=["Quadrupole"], lengths=[1.0],
                           x=[0.0], z=[0.0], theta=[th], angle=[0.0])
-        g = pp.build_geometry(tab, smap; view="zx")
-        _, _, nx, ny = pp.proj_axes('z', 'x', pp.w_matrix(th, 0, 0))
+        g = alp.build_geometry(tab, smap; view="zx")
+        _, _, nx, ny = alp.proj_axes('z', 'x', alp.w_matrix(th, 0, 0))
         rot = only(g.label_rot)
         reading = (cos(rot), sin(rot))          # direction the glyphs run
         outward = (nx, ny)                      # direction the anchor is offset
@@ -367,7 +367,7 @@ end
                              kinds=["Instrument", "Kicker", "Kicker"],
                              lengths=[0.0, 0.0, 0.0], x=[0.0, 0.0, 0.0],
                              z=[10.0, 10.0, 10.0], theta=zeros(3), angle=zeros(3))
-    g = pp.build_geometry(coincident, smap; view="zx")
+    g = alp.build_geometry(coincident, smap; view="zx")
     @test g.label_str == ["pue_a12", "dhca12", "dvca12"]
 
     # All three keep the one anchor: the stack is a shift off it, not a move.
@@ -383,7 +383,7 @@ end
     # characters, times the mean glyph advance, plus a gap.
     for k in 2:3
         step = g.label_stack[k] - g.label_stack[k - 1]
-        @test step >= length(g.label_str[k - 1]) * pp._CHAR_EM
+        @test step >= length(g.label_str[k - 1]) * alp._CHAR_EM
     end
 
     # Elements far enough apart are left where they are.
@@ -391,16 +391,16 @@ end
                         kinds=["Instrument", "Kicker", "Kicker"],
                         lengths=[0.0, 0.0, 0.0], x=[0.0, 0.0, 0.0],
                         z=[10.0, 20.0, 30.0], theta=zeros(3), angle=zeros(3))
-    @test all(iszero, pp.build_geometry(apart, smap; view="zx").label_stack)
+    @test all(iszero, alp.build_geometry(apart, smap; view="zx").label_stack)
 
     # ...and `label_sep=0` turns the stacking off entirely.
-    off = pp.build_geometry(coincident, smap; view="zx", label_sep=0)
+    off = alp.build_geometry(coincident, smap; view="zx", label_sep=0)
     @test all(iszero, off.label_stack)
 
     # The shift reaches the plot as a pixel offset pointing away from the line.
-    offs = pp._label_offsets(g, 11)
+    offs = alp._label_offsets(g, 11)
     @test offs[1] == Makie.Vec2f(0, 0)
-    _, _, nx, ny = pp.proj_axes('z', 'x', pp.w_matrix(0.0, 0, 0))
+    _, _, nx, ny = alp.proj_axes('z', 'x', alp.w_matrix(0.0, 0, 0))
     for k in 2:3
         @test offs[k][1] * nx + offs[k][2] * ny > 0      # outward, not inward
         @test hypot(offs[k]...) ≈ 11 * g.label_stack[k] rtol = 1e-5
@@ -413,7 +413,7 @@ end
 # indices in range, no NaN, unit normals, and a vertex-to-element map that lines
 # up with the vertices, since picking reads elements out of it.
 @testset "3D geometry: the mesh is well formed" begin
-    for shape in pp.SHAPE_NAMES
+    for shape in alp.SHAPE_NAMES
         tab = synth_table(names=["e"], kinds=["Widget"], lengths=[1.0],
                           x=[0.0], z=[0.0], theta=[0.4], angle=[0.3])
         m = ShapeMap([ele_shape("Widget", shape, :black; size=0.5, size2=0.25)];
@@ -445,10 +445,10 @@ end
             g = build_geometry3(tab, m)
             for f in g.mesh_faces
                 i1, i2, i3 = faceverts(f)
-                gn = pp.cross3(g.mesh_pts[i2] - g.mesh_pts[i1],
+                gn = alp.cross3(g.mesh_pts[i2] - g.mesh_pts[i1],
                                g.mesh_pts[i3] - g.mesh_pts[i1])
                 @test hypot(gn...) > 1e-9              # no slivers were emitted
-                @test pp.dot3(gn, g.mesh_nrm[i1]) > 0  # ...and it faces outward
+                @test alp.dot3(gn, g.mesh_nrm[i1]) > 0  # ...and it faces outward
             end
         end
     end
@@ -483,7 +483,7 @@ end
                           lengths=[2.0, 0.5, 0.3], x=[0.0, 0.0, 0.0],
                           z=[0.0, 2.0, 2.5], theta=[0.0, 0.3, 0.3],
                           angle=[0.3, 0.0, 0.0])
-    g2 = pp.build_geometry(lat_tab, ShapeMap(); view="zx")
+    g2 = alp.build_geometry(lat_tab, ShapeMap(); view="zx")
     g3 = build_geometry3(lat_tab, ShapeMap(); view="zxy")
     flat = filter(p -> !isnan(p[1]), g2.outline_pts)
     for k in 1:2
@@ -554,7 +554,7 @@ end
 
     fp = floor_plot3(co; shapes=smap, size=(900, 700))
     Makie.update_state_before_display!(fp.figure)
-    L = pp._layout_labels3(fp.geometry, fp.axis.scene, 4, 11)
+    L = alp._layout_labels3(fp.geometry, fp.axis.scene, 4, 11)
 
     # All three are drawn, none on top of another, and the two that had to be
     # moved to manage it are joined back to their element by a leader.
@@ -581,7 +581,7 @@ end
         fp.axis.elevation[] = el
         fp.axis.azimuth[] = az
         Makie.update_state_before_display!(fp.figure)
-        Lr = pp._layout_labels3(fp.geometry, fp.axis.scene, 4, 11)
+        Lr = alp._layout_labels3(fp.geometry, fp.axis.scene, 4, 11)
         @test count(p -> all(isfinite, p), Lr.pos) == 3
         @test allunique(screen_at(fp, Lr))
     end
@@ -599,13 +599,13 @@ end
     drawn(L) = count(p -> all(isfinite, p), L.pos)
 
     # An element smaller on screen than `label_min_px` is not labelled at all.
-    @test drawn(pp._layout_labels3(fp.geometry, fp.axis.scene, 10_000, 11)) == 0
+    @test drawn(alp._layout_labels3(fp.geometry, fp.axis.scene, 10_000, 11)) == 0
 
     # `label_sep = 0` turns the collision handling off: the labels are no longer
     # bumped apart, so only the first to claim the space is drawn.
     flat = floor_plot3(co; shapes=smap, size=(900, 700), label_sep=0)
     Makie.update_state_before_display!(flat.figure)
-    Lf = pp._layout_labels3(flat.geometry, flat.axis.scene, 4, 11)
+    Lf = alp._layout_labels3(flat.geometry, flat.axis.scene, 4, 11)
     @test flat.geometry.label_sep == 0
     @test drawn(Lf) == 1
     @test isempty(Lf.leader)
@@ -616,7 +616,7 @@ end
                         theta=zeros(2), angle=zeros(2))
     fa = floor_plot3(apart; shapes=smap, size=(900, 700))
     Makie.update_state_before_display!(fa.figure)
-    La = pp._layout_labels3(fa.geometry, fa.axis.scene, 4, 11)
+    La = alp._layout_labels3(fa.geometry, fa.axis.scene, 4, 11)
     @test drawn(La) == 2
     @test isempty(La.leader)
 end
@@ -681,7 +681,7 @@ end
     for psi in (0.0, 0.5, π / 3)
         tab = synth_table(names=["q"], kinds=["Quadrupole"], lengths=[1.0],
                           x=[0.0], z=[0.0], theta=[0.0], angle=[0.0], psi=[psi])
-        g = pp.build_geometry(tab, smap; view="zx")
+        g = alp.build_geometry(tab, smap; view="zx")
         pts = filter(p -> !isnan(p[1]), g.outline_pts)
         halfwidth = maximum(p -> abs(p[2]), pts)
         @test isapprox(halfwidth, 0.5 * cos(psi); atol=1e-5)
@@ -787,11 +787,11 @@ if isfile(CONVERT)
         worst_r = 0.0; worst_W = 0.0
         for i in 1:(length(tab) - 1)
             tab.branch[i] == tab.branch[i + 1] || continue
-            p = pp.place(tab, i, 1.0)
-            nxt = pp.Vec3d(tab.x[i + 1], tab.y[i + 1], tab.z[i + 1])
+            p = alp.place(tab, i, 1.0)
+            nxt = alp.Vec3d(tab.x[i + 1], tab.y[i + 1], tab.z[i + 1])
             worst_r = max(worst_r, hypot((p.r - nxt)...))
-            Wn = pp.w_matrix(tab.theta[i + 1], tab.phi[i + 1], tab.psi[i + 1])
-            for f in fieldnames(pp.Mat3)
+            Wn = alp.w_matrix(tab.theta[i + 1], tab.phi[i + 1], tab.psi[i + 1])
+            for f in fieldnames(alp.Mat3)
                 worst_W = max(worst_W, abs(getfield(p.W, f) - getfield(Wn, f)))
             end
         end
@@ -849,14 +849,14 @@ if isfile(FORK)
 
         # The reference orbit is broken between branches so the polyline does
         # not jump from the end of one line to the start of the next.
-        g = pp.build_geometry(tab, ShapeMap(); view="zx")
+        g = alp.build_geometry(tab, ShapeMap(); view="zx")
         @test count(p -> isnan(p[1]), g.ref_pts) == length(tab.branch_names) - 1
     end
 end
 
 # The render stage, up to but not including opening a window: building the
 # figure exercises every Makie call the plotter makes, and is where a Makie or
-# GLMakie change that PALSPlot has not followed would surface.
+# GLMakie change that AcceleratorLatticePlot has not followed would surface.
 @testset "floor_plot builds a figure" begin
     tab = synth_table(names=["q1", "b1"], kinds=["Quadrupole", "Bend"],
                       lengths=[0.5, 1.0], x=[0.0, 0.0], z=[0.0, 0.5],
@@ -928,7 +928,7 @@ end
 
 # Building a figure is not the same as being able to draw one: rasterizing it
 # runs every plot object through a backend, which is where a Makie change that
-# PALSPlot has not followed would actually bite.
+# AcceleratorLatticePlot has not followed would actually bite.
 @testset "the figure renders through a backend" begin
     tab = synth_table(names=["q1", "b1"], kinds=["Quadrupole", "Bend"],
                       lengths=[0.5, 1.0], x=[0.0, 0.0], z=[0.0, 0.5],
@@ -958,7 +958,7 @@ if isfile(CONVERT)
 
         # The side panel lists an element's parameters by walking its node.
         b = findfirst(==("Bend"), fp.table.kind)
-        text = pp._node_text(fp.table.node[b])
+        text = alp._node_text(fp.table.node[b])
         @test occursin("kind: Bend", text)
         @test occursin("BendP:", text)
         @test occursin("angle_ref:", text)   # a derived value, so full_expanded

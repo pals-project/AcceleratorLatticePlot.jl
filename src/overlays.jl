@@ -30,9 +30,9 @@ Draw a polyline through `points`, given in global coordinates, on the floor plan
 or 3D drawing `fp`. Points may be 3-vectors `(x, y, z)`, or 2-vectors taken as
 `(x, z)` on the `y = 0` plane. Extra keyword arguments go to Makie's `lines!`.
 
-This is the overlay a reference or measured orbit goes on: PALSPlot has no
-opinion about where the curve comes from, only about placing it in the same
-coordinates as the machine.
+This is the overlay a reference or measured orbit goes on: AcceleratorLatticePlot
+has no opinion about where the curve comes from, only about placing it in the
+same coordinates as the machine.
 
 ```julia
 fp = floor_plot(lat)

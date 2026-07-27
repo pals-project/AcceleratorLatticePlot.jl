@@ -1,5 +1,5 @@
 """
-    PALSPlot
+    AcceleratorLatticePlot
 
 Floor-plan plotting for expanded PALS lattices (see
 [`PALSJulia`](https://github.com/pals-project/PALSJulia.jl)).
@@ -13,7 +13,7 @@ and click-to-inspect: clicking an element lists its full parameter set.
 Quick start:
 
 ```julia
-using PALSJulia, PALSPlot
+using PALSJulia, AcceleratorLatticePlot
 using GLMakie                 # or any other Makie backend
 lat = parse_and_expand_pals("machine.pals.yaml")
 fp = floor_plot(lat)          # 2D floor plan
@@ -23,14 +23,15 @@ fp3 = floor_plot3(lat)        # ...the same machine in 3D
 display(fp3)
 ```
 
-PALSPlot builds on `Makie` rather than on a particular backend, so the caller
-chooses one: GLMakie for an interactive window, CairoMakie to write a file. None
-is needed to build the figure, or to use the extraction and geometry stages.
+AcceleratorLatticePlot builds on `Makie` rather than on a particular backend, so
+the caller chooses one: GLMakie for an interactive window, CairoMakie to write a
+file. None is needed to build the figure, or to use the extraction and geometry
+stages.
 
 The geometry, shape mapping and rendering stages are separate so the geometry can
 also be used headless (see [`element_table`](@ref) and [`build_geometry`](@ref)).
 """
-module PALSPlot
+module AcceleratorLatticePlot
 
 include("lattice.jl")
 include("frame.jl")

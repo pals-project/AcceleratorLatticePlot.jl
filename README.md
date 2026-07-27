@@ -1,20 +1,20 @@
-# PALSPlot.jl
+# AcceleratorLatticePlot.jl
 
-[![Julia Tests](https://github.com/pals-project/PALSPlot.jl/actions/workflows/test.yaml/badge.svg)](https://github.com/pals-project/PALSPlot.jl/actions/workflows/test.yaml)
+[![Julia Tests](https://github.com/pals-project/AcceleratorLatticePlot.jl/actions/workflows/test.yaml/badge.svg)](https://github.com/pals-project/AcceleratorLatticePlot.jl/actions/workflows/test.yaml)
 
 Floor-plan plotting for [PALS](https://github.com/campa-consortium/pals) lattices,
 built on [PALSJulia](https://github.com/pals-project/PALSJulia.jl) and
 [Makie](https://docs.makie.org/stable/).
 
-Given the expanded lattice from `PALSJulia.parse_and_expand_pals`, PALSPlot draws
-the machine either **projected onto a plane** (`floor_plot`) or as **solids in
-three dimensions** (`floor_plot3`). Each element is rendered as a shape — sized,
-colored and labeled by a [Tao](https://www.classe.cornell.edu/bmad/)-style rule
-table — placed and oriented from the floor coordinates the expander computes
-(the `full_expanded` view; see [Which expanded view](#which-expanded-view)).
-Bends follow their true arc. Both windows support **pan**, **zoom**, and
-**click-to-inspect**: click an element and its full parameter set is listed in a
-side panel.
+Given the expanded lattice from `PALSJulia.parse_and_expand_pals`,
+AcceleratorLatticePlot draws the machine either **projected onto a plane**
+(`floor_plot`) or as **solids in three dimensions** (`floor_plot3`). Each element
+is rendered as a shape — sized, colored and labeled by a
+[Tao](https://www.classe.cornell.edu/bmad/)-style rule table — placed and
+oriented from the floor coordinates the expander computes (the `full_expanded`
+view; see [Which expanded view](#which-expanded-view)). Bends follow their true
+arc. Both windows support **pan**, **zoom**, and **click-to-inspect**: click an
+element and its full parameter set is listed in a side panel.
 
 The two views are the same drawing. They share the shape table and the placement
 math, and the 3D drawing extrudes the very profile the floor plan strokes, so
@@ -29,18 +29,19 @@ only when the view is zoomed in far enough.
 
 ## Installation
 
-PALSPlot depends on PALSJulia, which is a wrapper around the `yaml_c_wrapper` C
-library shipped with [pals-cpp](https://github.com/pals-project/pals-cpp). Clone
-all three side by side and build the C library first:
+AcceleratorLatticePlot depends on PALSJulia, which is a wrapper around the
+`yaml_c_wrapper` C library shipped with
+[pals-cpp](https://github.com/pals-project/pals-cpp). Clone all three side by
+side and build the C library first:
 
 ```
 some-dir/
   pals-cpp/       # build this first: cmake -S . -B build && cmake --build build
   PALSJulia/
-  PALSPlot/
+  AcceleratorLatticePlot/
 ```
 
-Then, from the `PALSPlot` directory:
+Then, from the `AcceleratorLatticePlot` directory:
 
 ```console
 julia --project=. -e 'using Pkg; Pkg.develop(path="../PALSJulia"); Pkg.instantiate()'
@@ -48,9 +49,9 @@ julia --project=. -e 'using Pkg; Pkg.develop(path="../PALSJulia"); Pkg.instantia
 
 ### Choosing a backend
 
-PALSPlot depends on **Makie**, not on any one Makie backend: every drawing call
-it makes is Makie core, and a backend is needed only to put the figure
-somewhere. So you add the one you want.
+AcceleratorLatticePlot depends on **Makie**, not on any one Makie backend: every
+drawing call it makes is Makie core, and a backend is needed only to put the
+figure somewhere. So you add the one you want.
 
 ```console
 julia --project=. -e 'using Pkg; Pkg.add("GLMakie")'      # interactive window
@@ -64,7 +65,7 @@ extraction and geometry stages, and building a `Figure`, need no backend at all.
 
 ```julia
 using PALSJulia
-using PALSPlot
+using AcceleratorLatticePlot
 using GLMakie
 
 lat = parse_and_expand_pals("machine.pals.yaml")
@@ -106,12 +107,13 @@ the reset.
 
 ### Which expanded view
 
-`parse_and_expand_pals` returns the expanded lattice twice. PALSPlot reads
-**`lat.full_expanded`**, the view in which the expander has computed every
-dependent parameter: each element's `FloorP` (position and orientation at its
-upstream end), its `s_position`, and — for a bend — the `BendP.angle_ref` the
-arc is drawn from. `lat.expanded` holds the same lattice pruned back to what the
-author wrote, so none of that is in it and nothing could be placed.
+`parse_and_expand_pals` returns the expanded lattice twice.
+AcceleratorLatticePlot reads **`lat.full_expanded`**, the view in which the
+expander has computed every dependent parameter: each element's `FloorP`
+(position and orientation at its upstream end), its `s_position`, and — for a
+bend — the `BendP.angle_ref` the arc is drawn from. `lat.expanded` holds the same
+lattice pruned back to what the author wrote, so none of that is in it and
+nothing could be placed.
 
 `full_expanded` also caps each branch with a zero-length `branch_end`
 `Placeholder` holding the downstream end of the last element. It appears in the
@@ -120,11 +122,12 @@ centerline.
 
 ### Build pals-cpp against libc++
 
-PALSPlot needs the pals-cpp C library to be built with the **same C++ runtime as
-Julia and Makie — LLVM libc++ (Apple clang)**. If pals-cpp is instead built with
-GCC/libstdc++ (e.g. because `CC`/`CXX` point at MacPorts GCC), then loading a
-Makie backend and then parsing a lattice file **aborts the process** (signal 6):
-the two C++ exception runtimes clash in the library's file reader.
+AcceleratorLatticePlot needs the pals-cpp C library to be built with the **same
+C++ runtime as Julia and Makie — LLVM libc++ (Apple clang)**. If pals-cpp is
+instead built with GCC/libstdc++ (e.g. because `CC`/`CXX` point at MacPorts
+GCC), then loading a Makie backend and then parsing a lattice file **aborts the
+process** (signal 6): the two C++ exception runtimes clash in the library's file
+reader.
 
 Build pals-cpp with clang:
 
@@ -216,9 +219,9 @@ Two things work differently from the floor plan, both because a 3D view is not
 just a floor plan with an extra axis:
 
 * **Picking.** The floor plan finds the element nearest the cursor in data
-  coordinates; a 3D cursor is a ray, not a point. PALSPlot asks the backend to
-  pick first, which is exact and respects occlusion, and maps the picked mesh
-  vertex back to its element. Backends that cannot pick fall back to a
+  coordinates; a 3D cursor is a ray, not a point. AcceleratorLatticePlot asks the
+  backend to pick first, which is exact and respects occlusion, and maps the
+  picked mesh vertex back to its element. Backends that cannot pick fall back to a
   screen-space search along element centerlines, which needs no GPU — and so
   works headless and in the tests — but has no notion of depth.
 * **Labels.** Text billboards toward the camera: it is drawn at a fixed size in
@@ -247,8 +250,8 @@ add_wall!(fp3, [(0, 0, -5), (0, 0, 120), (30, 0, 120)]; height=4)
 
 `add_curve!` draws a polyline: points may be `(x, y, z)`, or `(x, z)` taken on
 the `y = 0` plane. It is what a reference- or measured-orbit overlay goes on;
-PALSPlot has no opinion about where the curve comes from, only about placing it
-in the same coordinates as the machine.
+AcceleratorLatticePlot has no opinion about where the curve comes from, only
+about placing it in the same coordinates as the machine.
 
 `add_wall!` takes a building wall's footprint on the floor and a height. On a
 floor plan that is the footprint, a plain polyline — a plan does not show a wall's
@@ -262,7 +265,7 @@ The Julia API is thin and callable from Python via
 
 ```python
 from juliacall import Main as jl
-jl.seval("using PALSJulia, PALSPlot, GLMakie")
+jl.seval("using PALSJulia, AcceleratorLatticePlot, GLMakie")
 lat = jl.parse_and_expand_pals("machine.pals.yaml")
 fp  = jl.floor_plot(lat)
 jl.display(fp)
@@ -323,11 +326,11 @@ only the second is consistent with the displacement in Eq. `lrztt`, which is
 frame's `z` axis comes off the tangent to the arc it is travelling along, by
 about `2·sin(α_b)·sin(θ_tr)`.
 
-pals-cpp's `bend_LS` implements Eq. `ustt`, and **PALSPlot follows it**: drawing
-the other convention would open a visible gap at every tilted bend, at whose exit
-face the expander has already written the next element's `FloorP`. The tests pin
-the convention down explicitly, so if pals-cpp switches they fail there and say
-why rather than turning into a mystery about the drawing.
+pals-cpp's `bend_LS` implements Eq. `ustt`, and **AcceleratorLatticePlot follows
+it**: drawing the other convention would open a visible gap at every tilted bend,
+at whose exit face the expander has already written the next element's `FloorP`.
+The tests pin the convention down explicitly, so if pals-cpp switches they fail
+there and say why rather than turning into a mystery about the drawing.
 
 Separately, a `Patch` is drawn as a straight segment of its length: its body does
 not follow the jump its offsets and rotations describe. Nothing else is affected,
@@ -349,9 +352,9 @@ julia --project=. -e 'using Pkg; Pkg.develop(path="../PALSJulia"); Pkg.instantia
 CI runs the suite on Julia 1.11 and 1.12, on Linux and macOS, against **`main`
 of PALSJulia and pals-cpp** — both are checked out fresh and pals-cpp is built
 from source on every run. PALSJulia binds the pals-cpp C structs by layout and
-PALSPlot draws from the floor coordinates pals-cpp computes, so a change to
-either that PALSPlot has not followed shows up as a failure here rather than as
-an empty window later.
+AcceleratorLatticePlot draws from the floor coordinates pals-cpp computes, so a
+change to either that AcceleratorLatticePlot has not followed shows up as a
+failure here rather than as an empty window later.
 
 The suite renders through **CairoMakie**, which is pure software and so needs no
 display, no OpenGL and no X server. That is what lets it run everywhere: a

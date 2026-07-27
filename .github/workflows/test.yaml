@@ -6,10 +6,11 @@ on:
   pull_request:
     branches: [ main ]
 
-# PALSPlot sits on top of two moving repositories -- PALSJulia binds the pals-cpp
-# C structs by layout, and pals-cpp is what computes the floor coordinates the
-# plotter draws from -- so both are checked out at `main` and pals-cpp is built
-# from source. A change to either that PALSPlot has not followed shows up here.
+# AcceleratorLatticePlot sits on top of two moving repositories -- PALSJulia
+# binds the pals-cpp C structs by layout, and pals-cpp is what computes the floor
+# coordinates the plotter draws from -- so both are checked out at `main` and
+# pals-cpp is built from source. A change to either that AcceleratorLatticePlot
+# has not followed shows up here.
 #
 # The suite renders through CairoMakie, which is pure software and so runs on any
 # runner. GLMakie needs a real OpenGL context: Linux can supply one under xvfb
@@ -31,15 +32,16 @@ jobs:
     steps:
       # The three repositories side by side, the layout the README describes and
       # the one PALSJulia searches: it looks for the shared library at
-      # `<PALSJulia>/../pals-cpp/build`, and PALSPlot develops PALSJulia at
-      # `../PALSJulia`.
-      - name: Checkout PALSPlot repository
+      # `<PALSJulia>/../pals-cpp/build`, and AcceleratorLatticePlot develops
+      # PALSJulia at `../PALSJulia`.
+      - name: Checkout AcceleratorLatticePlot repository
         uses: actions/checkout@v5
         with:
-          path: PALSPlot
+          path: AcceleratorLatticePlot
 
       # Checked out as `PALSJulia`, not `PALSJulia.jl`: that is the directory
-      # name PALSPlot and PALSJulia's own library search both expect.
+      # name AcceleratorLatticePlot and PALSJulia's own library search both
+      # expect.
       - name: Checkout PALSJulia repository
         uses: actions/checkout@v5
         with:
@@ -94,7 +96,7 @@ jobs:
         shell: bash
 
       - name: Instantiate
-        working-directory: PALSPlot
+        working-directory: AcceleratorLatticePlot
         run: |
           julia --project=. -e '
             using Pkg
@@ -105,7 +107,7 @@ jobs:
 
       # The whole suite, rendering through CairoMakie. No display required.
       - name: Run tests
-        working-directory: PALSPlot
+        working-directory: AcceleratorLatticePlot
         run: julia --project=. -e 'using Pkg; Pkg.test()'
         shell: bash
 
@@ -114,7 +116,7 @@ jobs:
       # OpenGL context. Linux only -- see the note at the top.
       - name: Smoke-test the GLMakie backend (Ubuntu)
         if: runner.os == 'Linux'
-        working-directory: PALSPlot
+        working-directory: AcceleratorLatticePlot
         run: |
           julia --project=/tmp/glenv -e '
             using Pkg

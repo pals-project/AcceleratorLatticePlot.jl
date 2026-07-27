@@ -1,9 +1,9 @@
-name = "PALSPlot"
+name = "AcceleratorLatticePlot"
 uuid = "3049f814-9e03-43b8-ae7b-d1fea224693e"
 authors = ["David Sagan <david.sagan@gmail.com>"]
 version = "0.1.0"
 
-# Makie, not a Makie backend. Every drawing call PALSPlot makes is Makie core, so
+# Makie, not a Makie backend. Every drawing call AcceleratorLatticePlot makes is Makie core, so
 # the caller loads the backend they want -- GLMakie for an interactive window,
 # CairoMakie to write a file -- and neither is a dependency of this package.
 [deps]
