@@ -9,8 +9,8 @@
 # This builds on `Makie` itself rather than on a particular backend: every call
 # here is Makie core, and a backend is needed only to put the figure somewhere --
 # GLMakie for an interactive window, CairoMakie to rasterize it to a file. So the
-# caller loads whichever they want and PALSPlot has no opinion, which is also
-# what lets the tests run on a machine with no OpenGL at all.
+# caller loads whichever they want and AcceleratorLatticePlot has no opinion,
+# which is also what lets the tests run on a machine with no OpenGL at all.
 
 using GeometryBasics: Point2f
 using Colors

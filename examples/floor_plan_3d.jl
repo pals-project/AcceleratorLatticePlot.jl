@@ -12,8 +12,8 @@
 # straight down at this one and you have the floor plan.
 
 using PALSJulia
-using PALSPlot
-using GLMakie      # the backend; PALSPlot itself depends only on Makie
+using AcceleratorLatticePlot
+using GLMakie      # the backend; this package depends only on Makie
 
 # Default to the bundled convert example in the sibling PALSJulia checkout: it is
 # the one that does not stay in the horizontal plane, so it has something to show
