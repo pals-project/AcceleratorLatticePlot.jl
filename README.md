@@ -16,6 +16,12 @@ view; see [Which expanded view](#which-expanded-view)). Bends follow their true
 arc. Both windows support **pan**, **zoom**, and **click-to-inspect**: click an
 element and its full parameter set is listed in a side panel.
 
+![Floor plan of the bta transfer line](images/bta.png)
+
+*`floor_plot` on the `bta` line, with one bend clicked: the panel lists that
+element's parameters as the expander left them, its `FloorP` and `s_position`
+included.*
+
 The two views are the same drawing. They share the shape table and the placement
 math, and the 3D drawing extrudes the very profile the floor plan strokes, so
 looking straight down at `floor_plot3` gives you `floor_plot`.
@@ -89,6 +95,10 @@ or run the bundled examples:
 julia --project=. examples/floor_plan.jl    path/to/machine.pals.yaml
 julia --project=. examples/floor_plan_3d.jl path/to/machine.pals.yaml
 ```
+
+`examples/helix.pals.yaml` is a small lattice bundled here to have something
+that leaves the horizontal plane to point them at; see [3D
+drawing](#3d-drawing).
 
 **Controls**
 
@@ -208,6 +218,22 @@ are after.
 using GLMakie
 fp = floor_plot3(lat)
 display(fp)
+```
+
+![A helical ramp drawn by floor_plot3](images/helix3d.png)
+
+*`examples/helix.pals.yaml`, a small lattice that exists to be three
+dimensional: ten identical cells, each turning the beam 36° in the horizontal
+plane and lifting it about 1.1 m, so the line closes on itself in plan and comes
+back over its own start 11 m higher. The lift is `tilt_ref`'s doing — the
+selected `b_up`, whose parameters are in the panel, is a Bend with `tilt_ref`
+= π/2, which rolls its bend plane a quarter turn about the beam axis so that it
+bends vertically instead of horizontally. This is the lattice a floor plan
+cannot show: projected onto the horizontal plane the ten cells lie on top of
+each other, as one circle.*
+
+```console
+julia --project=. examples/floor_plan_3d.jl examples/helix.pals.yaml
 ```
 
 GLMakie is the backend this is meant for. CairoMakie will render a 3D figure —

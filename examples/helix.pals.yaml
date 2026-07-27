@@ -1,0 +1,104 @@
+# A small three-dimensional lattice: a helical ramp.
+#
+# Ten identical cells, each of which turns the beam 36 degrees in the horizontal
+# plane and lifts it about 1.1 m. So the line closes on itself in azimuth after
+# one turn and arrives back over its own start, some 11 m higher -- a spiral
+# staircase.
+#
+# The lift is what `tilt_ref` is for. A Bend's `tilt_ref` rolls its bend plane
+# about the beam axis, so a bend with `tilt_ref: pi/2` bends vertically rather
+# than horizontally: `b_up` pitches the beam up, the long drift `d_climb` runs
+# uphill, and `b_dn` levels it off again before the horizontal arc bend `b_arc`
+# -- which has no tilt at all -- turns the corner.
+#
+# This is the lattice a floor plan cannot show: projected onto the horizontal
+# plane all ten cells lie on top of each other, as one circle.
+
+PALS:
+  facility:
+    - beg:
+        kind: BeginningEle
+        length: 0
+        ReferenceP:
+          species_ref: electron
+          pc_ref: 5e9
+
+    - d1:
+        kind: Drift
+        length: 1.0
+
+    # The uphill run. It is a straight element, but the frame it sits in has
+    # been pitched up by `b_up`, so it climbs.
+    - d_climb:
+        kind: Drift
+        length: 3.0
+
+    # tilt_ref = pi/2 rolls the bend plane a quarter turn about the beam axis:
+    # this bends in the vertical plane, pitching the beam up by 0.25 rad.
+    - b_up:
+        kind: Bend
+        length: 1.5
+        BendP:
+          angle_ref: 0.25
+          tilt_ref: 1.5707963267948966
+
+    # The same tilt with the opposite angle takes the pitch back out, so each
+    # cell ends level and the next one starts the way this one did.
+    - b_dn:
+        kind: Bend
+        length: 1.5
+        BendP:
+          angle_ref: -0.25
+          tilt_ref: 1.5707963267948966
+
+    # The horizontal arc: untilted, so it turns the heading rather than the
+    # pitch. Ten of these close the ring: 10 * 36 deg = 360 deg.
+    - b_arc:
+        kind: Bend
+        length: 6.0
+        BendP:
+          angle_ref: 0.6283185307179586
+
+    - qf:
+        kind: Quadrupole
+        length: 0.4
+        MagneticMultipoleP:
+          Kn1: 0.31
+
+    - qd:
+        kind: Quadrupole
+        length: 0.4
+        MagneticMultipoleP:
+          Kn1: -0.31
+
+    - cell:
+        kind: BeamLine
+        line:
+          - qf
+          - d1
+          - b_up
+          - d_climb
+          - b_dn
+          - d1
+          - qd
+          - b_arc
+
+    - ramp:
+        kind: BeamLine
+        line:
+          - beg
+          - cell
+          - cell
+          - cell
+          - cell
+          - cell
+          - cell
+          - cell
+          - cell
+          - cell
+          - cell
+
+    - lat:
+        kind: Lattice
+        branches:
+          - ramp

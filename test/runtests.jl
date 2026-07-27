@@ -824,6 +824,45 @@ if isfile(CONVERT)
     end
 end
 
+# The helical ramp bundled with this package, which the README shows a picture of
+# and describes in numbers. Unlike the lattices above it is always present, and
+# unlike them it was written here, so it is the one example whose geometry this
+# package is free to state exactly: ten cells that each turn 36 degrees and climb,
+# built out of Bends whose `tilt_ref` is a quarter turn. If either the figures in
+# the README or the drawing stop matching, that is a failure worth having.
+const HELIX = normpath(joinpath(@__DIR__, "..", "examples", "helix.pals.yaml"))
+
+@testset "the bundled helical ramp is three dimensional and closes" begin
+    lat = parse_and_expand_pals(HELIX; problems=:none)
+    @test isempty(lat.problems)
+    tab = element_table(lat)
+
+    # Three dimensional because of `tilt_ref`, which is the whole point of the
+    # example: without the tilted bends this is a flat circle.
+    @test count(!=(0.0), tab.tilt_ref) == 20        # ten b_up and ten b_dn
+    @test count(!=(0.0), tab.phi) > 0
+    # Nothing rolls the beam here -- the cells pitch and yaw only -- so psi is
+    # analytically zero the whole way round, and what survives is rounding.
+    @test all(p -> abs(p) < 1e-12, tab.psi)
+
+    # What the README claims: the ramp closes on itself in plan and arrives back
+    # over its own start about 11 m higher.
+    @test isapprox(tab.x[end], tab.x[1]; atol=1e-9)
+    @test isapprox(tab.z[end], tab.z[1]; atol=1e-9)
+    @test isapprox(tab.y[end] - tab.y[1], 11.04; atol=0.01)
+    @test isapprox(tab.theta[end] - tab.theta[1], 0.0; atol=1e-9) ||
+          isapprox(abs(tab.theta[end] - tab.theta[1]), 2pi; atol=1e-9)
+
+    # And it is drawn the way it is placed: each element's drawn exit is the next
+    # one's drawn entrance, all the way up.
+    g = build_geometry3(tab, ShapeMap(); view="zxy")
+    worst = 0.0
+    for i in 1:(length(tab) - 1)
+        worst = max(worst, hypot((g.ele_exit[i] - g.ele_entrance[i + 1])...))
+    end
+    @test worst < 1e-3
+end
+
 # A fork spawns a new branch, so the table spans several lines rather than one.
 if isfile(FORK)
     @testset "extraction across forked branches" begin
