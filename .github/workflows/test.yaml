@@ -6,11 +6,11 @@ on:
   pull_request:
     branches: [ main ]
 
-# AcceleratorLatticePlot sits on top of two moving repositories -- PALSJulia
-# binds the pals-cpp C structs by layout, and pals-cpp is what computes the floor
-# coordinates the plotter draws from -- so both are checked out at `main` and
-# pals-cpp is built from source. A change to either that AcceleratorLatticePlot
-# has not followed shows up here.
+# AcceleratorLatticePlot sits on top of two moving repositories -- PALSParserJ
+# binds the PALSParserCpp C structs by layout, and PALSParserCpp is what computes
+# the floor coordinates the plotter draws from -- so both are checked out at
+# `main` and PALSParserCpp is built from source. A change to either that
+# AcceleratorLatticePlot has not followed shows up here.
 #
 # The suite renders through CairoMakie, which is pure software and so runs on any
 # runner. GLMakie needs a real OpenGL context: Linux can supply one under xvfb
@@ -31,28 +31,28 @@ jobs:
 
     steps:
       # The three repositories side by side, the layout the README describes and
-      # the one PALSJulia searches: it looks for the shared library at
-      # `<PALSJulia>/../pals-cpp/build`, and AcceleratorLatticePlot develops
-      # PALSJulia at `../PALSJulia`.
+      # the one PALSParserJ searches: it looks for the shared library at
+      # `<PALSParserJ>/../PALSParserCpp/build`, and AcceleratorLatticePlot
+      # develops PALSParserJ at `../PALSParserJ`.
       - name: Checkout AcceleratorLatticePlot repository
         uses: actions/checkout@v5
         with:
           path: AcceleratorLatticePlot
 
-      # Checked out as `PALSJulia`, not `PALSJulia.jl`: that is the directory
-      # name AcceleratorLatticePlot and PALSJulia's own library search both
+      # Checked out as `PALSParserJ`, not `PALSParserJ.jl`: that is the directory
+      # name AcceleratorLatticePlot and PALSParserJ's own library search both
       # expect.
-      - name: Checkout PALSJulia repository
+      - name: Checkout PALSParserJ repository
         uses: actions/checkout@v5
         with:
-          repository: pals-project/PALSJulia.jl
-          path: PALSJulia
+          repository: pals-project/PALSParserJ.jl
+          path: PALSParserJ
 
-      - name: Checkout pals-cpp repository
+      - name: Checkout PALSParserCpp repository
         uses: actions/checkout@v5
         with:
-          repository: pals-project/pals-cpp
-          path: pals-cpp
+          repository: pals-project/PALSParserCpp
+          path: PALSParserCpp
 
       - name: Setup Julia
         uses: julia-actions/setup-julia@v2
@@ -61,10 +61,10 @@ jobs:
 
       - uses: julia-actions/cache@v2
 
-      # pals-cpp fetches rapidyaml (and the rest) itself via CMake FetchContent,
-      # so a compiler and CMake are all it needs; both runners ship CMake. The
-      # OpenGL and xvfb packages are for the GLMakie step further down, which
-      # runs on Linux only.
+      # PALSParserCpp fetches rapidyaml (and the rest) itself via CMake
+      # FetchContent, so a compiler and CMake are all it needs; both runners
+      # ship CMake. The OpenGL and xvfb packages are for the GLMakie step
+      # further down, which runs on Linux only.
       - name: Install system dependencies (Ubuntu)
         if: runner.os == 'Linux'
         run: |
@@ -78,8 +78,8 @@ jobs:
       # clang/libc++ -- the runner default, so CC/CXX are left unset rather than
       # pointed anywhere. If they ever disagree, loading a Makie backend and then
       # parsing a lattice aborts the process rather than failing a test.
-      - name: Build the pals-cpp shared library
-        working-directory: pals-cpp
+      - name: Build the PALSParserCpp shared library
+        working-directory: PALSParserCpp
         run: |
           cmake -S . -B build
           cmake --build build --parallel
@@ -88,9 +88,9 @@ jobs:
       - name: Check the C++ runtime the library links (macOS)
         if: runner.os == 'macOS'
         run: |
-          otool -L pals-cpp/build/libyaml_c_wrapper.dylib
-          if otool -L pals-cpp/build/libyaml_c_wrapper.dylib | grep -q libstdc++; then
-            echo "::error::libyaml_c_wrapper links libstdc++; Julia and Makie need libc++"
+          otool -L PALSParserCpp/build/libPALSParserCpp.dylib
+          if otool -L PALSParserCpp/build/libPALSParserCpp.dylib | grep -q libstdc++; then
+            echo "::error::libPALSParserCpp links libstdc++; Julia and Makie need libc++"
             exit 1
           fi
         shell: bash
@@ -100,7 +100,7 @@ jobs:
         run: |
           julia --project=. -e '
             using Pkg
-            Pkg.develop(path="../PALSJulia")
+            Pkg.develop(path="../PALSParserJ")
             Pkg.instantiate()
           '
         shell: bash
@@ -121,7 +121,7 @@ jobs:
           julia --project=/tmp/glenv -e '
             using Pkg
             Pkg.develop(path=".")
-            Pkg.develop(path="../PALSJulia")
+            Pkg.develop(path="../PALSParserJ")
             Pkg.add("GLMakie")
           '
           xvfb-run -a -s '-screen 0 1024x768x24' \

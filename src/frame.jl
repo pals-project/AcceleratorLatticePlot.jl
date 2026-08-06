@@ -8,11 +8,12 @@
 # shape vertex in between -- where the expander put it.
 #
 # That carry is exactly what the expander itself does (`floor_propagate` with the
-# (L, S) pair from `straight_LS`/`bend_LS` in pals-cpp's pals_floor.cpp), so it
-# is done here the same way rather than approximated: `place` below is those two
-# functions composed, evaluated at an arbitrary fraction along the element.
-# pals-cpp carries the orientation as a quaternion; a matrix is used here because
-# what the drawing wants at each point is the branch axes, which are its columns.
+# (L, S) pair from `straight_LS`/`bend_LS` in PALSParserCpp's pals_floor.cpp), so
+# it is done here the same way rather than approximated: `place` below is those
+# two functions composed, evaluated at an arbitrary fraction along the element.
+# PALSParserCpp carries the orientation as a quaternion; a matrix is used here
+# because what the drawing wants at each point is the branch axes, which are its
+# columns.
 #
 # Both the 2D and the 3D drawing sit on this: 2D projects the result onto a
 # plane, 3D sweeps the shape templates through it directly. Doing the geometry in
@@ -97,7 +98,7 @@ heading in the horizontal plane.
     Placement
 
 The position `r` and orientation `W` of the branch coordinate system at one point
-on the reference curve -- the standard's floor placement, and what pals-cpp
+on the reference curve -- the standard's floor placement, and what PALSParserCpp
 carries as a `FloorState`.
 """
 struct Placement
@@ -112,7 +113,7 @@ Placement a fraction `f` of the way along an element whose upstream end is at
 `r0` with orientation `W0`, of arc length `len`, reference bend angle `angle`
 (0 when straight) and reference tilt `tilt`.
 
-This is pals-cpp's `floor_propagate` applied to the `(L, S)` pair that
+This is PALSParserCpp's `floor_propagate` applied to the `(L, S)` pair that
 `straight_LS`/`bend_LS` build, evaluated at `f * angle` rather than only at the
 downstream end. Following the expander's own construction is what makes the
 drawing close on its floor coordinates: at `f = 1` this reproduces the next
@@ -139,8 +140,8 @@ element's `FloorP` rather than merely coming near it.
   # This used to disagree: Eq. ustt read u = (-sin θ_tr, -cos θ_tr, 0), which is
   # a *different* rotation for a bend rolled out of its branch's x-z plane, and
   # left the frame's z axis off the tangent to the arc it is travelling along by
-  # about 2 sin(α_b) sin(θ_tr). pals-cpp's `bend_LS` implemented that sign and
-  # this function followed it to keep the drawing flush with the expander's
+  # about 2 sin(α_b) sin(θ_tr). PALSParserCpp's `bend_LS` implemented that sign
+  # and this function followed it to keep the drawing flush with the expander's
   # `FloorP`. Both have since been corrected; the `place` tests check the two
   # forms against each other so a regression on either side fails here rather
   # than turning into a mystery about the drawing.

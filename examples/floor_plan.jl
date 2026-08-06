@@ -8,12 +8,12 @@
 # right-drag to pan, left-click an element to list its parameters in the side
 # panel.
 
-using PALSJulia
+using PALSParserJ
 using AcceleratorLatticePlot
 using GLMakie      # the backend; this package depends only on Makie
 
-# Default to the bundled convert example in the sibling PALSJulia checkout.
-default_file = normpath(joinpath(@__DIR__, "..", "..", "PALSJulia",
+# Default to the bundled convert example in the sibling PALSParserJ checkout.
+default_file = normpath(joinpath(@__DIR__, "..", "..", "PALSParserJ",
                                  "lattice_files", "convert.pals.yaml"))
 file = isempty(ARGS) ? default_file : ARGS[1]
 

@@ -3,10 +3,10 @@
 [![Julia Tests](https://github.com/pals-project/AcceleratorLatticePlot.jl/actions/workflows/test.yaml/badge.svg)](https://github.com/pals-project/AcceleratorLatticePlot.jl/actions/workflows/test.yaml)
 
 Floor-plan plotting for [PALS](https://github.com/campa-consortium/pals) lattices,
-built on [PALSJulia](https://github.com/pals-project/PALSJulia.jl) and
+built on [PALSParserJ](https://github.com/pals-project/PALSParserJ.jl) and
 [Makie](https://docs.makie.org/stable/).
 
-Given the expanded lattice from `PALSJulia.parse_and_expand_pals`,
+Given the expanded lattice from `PALSParserJ.parse_and_expand_pals`,
 AcceleratorLatticePlot draws the machine either **projected onto a plane**
 (`floor_plot`) or as **solids in three dimensions** (`floor_plot3`). Each element
 is rendered as a shape — sized, colored and labeled by a
@@ -35,22 +35,22 @@ only when the view is zoomed in far enough.
 
 ## Installation
 
-AcceleratorLatticePlot depends on PALSJulia, which is a wrapper around the
-`yaml_c_wrapper` C library shipped with
-[pals-cpp](https://github.com/pals-project/pals-cpp). Clone all three side by
-side and build the C library first:
+AcceleratorLatticePlot depends on PALSParserJ, which is a wrapper around the C
+library built by
+[PALSParserCpp](https://github.com/pals-project/PALSParserCpp). Clone all three
+side by side and build the C library first:
 
 ```
 some-dir/
-  pals-cpp/       # build this first: cmake -S . -B build && cmake --build build
-  PALSJulia/
+  PALSParserCpp/          # build first: cmake -S . -B build && cmake --build build
+  PALSParserJ/
   AcceleratorLatticePlot/
 ```
 
 Then, from the `AcceleratorLatticePlot` directory:
 
 ```console
-julia --project=. -e 'using Pkg; Pkg.develop(path="../PALSJulia"); Pkg.instantiate()'
+julia --project=. -e 'using Pkg; Pkg.develop(path="../PALSParserJ"); Pkg.instantiate()'
 ```
 
 ### Choosing a backend
@@ -70,7 +70,7 @@ extraction and geometry stages, and building a `Figure`, need no backend at all.
 ## Quick start
 
 ```julia
-using PALSJulia
+using PALSParserJ
 using AcceleratorLatticePlot
 using GLMakie
 
@@ -130,25 +130,25 @@ nothing could be placed.
 element table like any other element; the default shape table draws it as bare
 centerline.
 
-### Build pals-cpp against libc++
+### Build PALSParserCpp against libc++
 
-AcceleratorLatticePlot needs the pals-cpp C library to be built with the **same
-C++ runtime as Julia and Makie — LLVM libc++ (Apple clang)**. If pals-cpp is
-instead built with GCC/libstdc++ (e.g. because `CC`/`CXX` point at MacPorts
-GCC), then loading a Makie backend and then parsing a lattice file **aborts the
-process** (signal 6): the two C++ exception runtimes clash in the library's file
-reader.
+AcceleratorLatticePlot needs the PALSParserCpp C library to be built with the
+**same C++ runtime as Julia and Makie — LLVM libc++ (Apple clang)**. If
+PALSParserCpp is instead built with GCC/libstdc++ (e.g. because `CC`/`CXX` point
+at MacPorts GCC), then loading a Makie backend and then parsing a lattice file
+**aborts the process** (signal 6): the two C++ exception runtimes clash in the
+library's file reader.
 
-Build pals-cpp with clang:
+Build PALSParserCpp with clang:
 
 ```console
-cd pals-cpp && rm -rf build
+cd PALSParserCpp && rm -rf build
 env -u CC -u CXX cmake -S . -B build \
     -DCMAKE_C_COMPILER=/usr/bin/clang -DCMAKE_CXX_COMPILER=/usr/bin/clang++
 cmake --build build
 ```
 
-Verify with `otool -L build/libyaml_c_wrapper.dylib`: it should show
+Verify with `otool -L build/libPALSParserCpp.dylib`: it should show
 `/usr/lib/libc++.1.dylib` and **no** `libstdc++`.
 
 ## Choosing shapes
@@ -293,7 +293,7 @@ The Julia API is thin and callable from Python via
 
 ```python
 from juliacall import Main as jl
-jl.seval("using PALSJulia, AcceleratorLatticePlot, GLMakie")
+jl.seval("using PALSParserJ, AcceleratorLatticePlot, GLMakie")
 lat = jl.parse_and_expand_pals("machine.pals.yaml")
 fp  = jl.floor_plot(lat)
 jl.display(fp)
@@ -326,7 +326,7 @@ orientation angles — and the drawing is carried across it using the standard's
 orientation matrix `W = R_y(θ) R_x(φ) R_z(ψ)` (`coordinates.md`, Eq. www). Within
 an element the reference curve is propagated exactly the way the expander
 propagates it (`floor_propagate` with the `(L, S)` pair from `straight_LS` /
-`bend_LS` in pals-cpp's `pals_floor.cpp`), evaluated at an arbitrary fraction
+`bend_LS` in PALSParserCpp's `pals_floor.cpp`), evaluated at an arbitrary fraction
 along rather than only at the far end.
 
 Following the expander's own construction is what makes the drawing agree with
@@ -357,10 +357,10 @@ the displacement.
 This is worth stating because it did not always hold. Eq. `ustt` previously read
 `u = (−sin θ_tr, −cos θ_tr, 0)`, which for a bend rolled out of its branch's
 `x`–`z` plane is a *different* rotation from Eq. `srrr`, and left the frame's `z`
-axis off its own tangent by about `2·sin(α_b)·sin(θ_tr)`. pals-cpp's `bend_LS`
+axis off its own tangent by about `2·sin(α_b)·sin(θ_tr)`. PALSParserCpp's `bend_LS`
 implemented that sign and AcceleratorLatticePlot followed it, to avoid opening a
 visible gap at every tilted bend, at whose exit face the expander has already
-written the next element's `FloorP`. The doc, pals-cpp and this package have
+written the next element's `FloorP`. The doc, PALSParserCpp and this package have
 since been corrected together. The tests check the two forms against each other,
 so a regression on either side fails there and says why rather than turning into
 a mystery about the drawing.
@@ -379,15 +379,16 @@ that leave the horizontal plane, and building-wall and orbit overlays.
 ## Testing
 
 ```console
-julia --project=. -e 'using Pkg; Pkg.develop(path="../PALSJulia"); Pkg.instantiate(); Pkg.test()'
+julia --project=. -e 'using Pkg; Pkg.develop(path="../PALSParserJ"); Pkg.instantiate(); Pkg.test()'
 ```
 
 CI runs the suite on Julia 1.11 and 1.12, on Linux and macOS, against **`main`
-of PALSJulia and pals-cpp** — both are checked out fresh and pals-cpp is built
-from source on every run. PALSJulia binds the pals-cpp C structs by layout and
-AcceleratorLatticePlot draws from the floor coordinates pals-cpp computes, so a
-change to either that AcceleratorLatticePlot has not followed shows up as a
-failure here rather than as an empty window later.
+of PALSParserJ and PALSParserCpp** — both are checked out fresh and
+PALSParserCpp is built from source on every run. PALSParserJ binds the
+PALSParserCpp C structs by layout and AcceleratorLatticePlot draws from the
+floor coordinates PALSParserCpp computes, so a change to either that
+AcceleratorLatticePlot has not followed shows up as a failure here rather than
+as an empty window later.
 
 The suite renders through **CairoMakie**, which is pure software and so needs no
 display, no OpenGL and no X server. That is what lets it run everywhere: a

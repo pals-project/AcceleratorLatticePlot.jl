@@ -11,14 +11,14 @@
 # and their placement math, so the same machine looks the same in both -- look
 # straight down at this one and you have the floor plan.
 
-using PALSJulia
+using PALSParserJ
 using AcceleratorLatticePlot
 using GLMakie      # the backend; this package depends only on Makie
 
-# Default to the bundled convert example in the sibling PALSJulia checkout: it is
-# the one that does not stay in the horizontal plane, so it has something to show
-# in 3D that a floor plan cannot.
-default_file = normpath(joinpath(@__DIR__, "..", "..", "PALSJulia",
+# Default to the bundled convert example in the sibling PALSParserJ checkout: it
+# is the one that does not stay in the horizontal plane, so it has something to
+# show in 3D that a floor plan cannot.
+default_file = normpath(joinpath(@__DIR__, "..", "..", "PALSParserJ",
                                  "lattice_files", "convert.pals.yaml"))
 file = isempty(ARGS) ? default_file : ARGS[1]
 

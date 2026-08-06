@@ -27,8 +27,8 @@
 # tens of thousands of elements. Each element keeps a `YAMLNode` handle so the
 # GUI can list its full parameter set on demand.
 
-using PALSJulia
-import PALSJulia as pj
+using PALSParserJ
+import PALSParserJ as pj
 
 """
     ElementTable

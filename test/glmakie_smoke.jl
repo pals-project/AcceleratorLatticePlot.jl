@@ -15,7 +15,7 @@ using Test
 using GLMakie
 using AcceleratorLatticePlot
 import AcceleratorLatticePlot as alp
-import PALSJulia as pj
+import PALSParserJ as pj
 
 const NODE = pj.parse_string("kind: Drift\n")
 

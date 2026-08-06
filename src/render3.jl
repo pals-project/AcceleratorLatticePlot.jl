@@ -27,7 +27,7 @@ using GeometryBasics: Point2f, Point3f, Vec2f, Vec4f, widths
 using Colors
 using Makie
 import GeometryBasics
-import PALSJulia as pj
+import PALSParserJ as pj
 
 """
 Handle to a live 3D drawing: the figure, its axis, and the source data. Mirrors

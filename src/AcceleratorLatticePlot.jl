@@ -2,18 +2,18 @@
     AcceleratorLatticePlot
 
 Floor-plan plotting for expanded PALS lattices (see
-[`PALSJulia`](https://github.com/pals-project/PALSJulia.jl)).
+[`PALSParserJ`](https://github.com/pals-project/PALSParserJ.jl)).
 
-Given the `Lattices` object returned by `PALSJulia.parse_and_expand_pals`, draw
-the machine projected onto a plane ([`floor_plot`](@ref)) or as solids in three
-dimensions ([`floor_plot3`](@ref)), with each element rendered as a shape sized,
-colored and labeled by a Tao-style rule table. Both windows support pan, zoom,
-and click-to-inspect: clicking an element lists its full parameter set.
+Given the `Lattices` object returned by `PALSParserJ.parse_and_expand_pals`,
+draw the machine projected onto a plane ([`floor_plot`](@ref)) or as solids in
+three dimensions ([`floor_plot3`](@ref)), with each element rendered as a shape
+sized, colored and labeled by a Tao-style rule table. Both windows support pan,
+zoom, and click-to-inspect: clicking an element lists its full parameter set.
 
 Quick start:
 
 ```julia
-using PALSJulia, AcceleratorLatticePlot
+using PALSParserJ, AcceleratorLatticePlot
 using GLMakie                 # or any other Makie backend
 lat = parse_and_expand_pals("machine.pals.yaml")
 fp = floor_plot(lat)          # 2D floor plan
