@@ -15,7 +15,7 @@
 using GeometryBasics: Point2f
 using Colors
 using Makie
-import PALSJulia as pj
+import PALSParserJ as pj
 
 """
 Handle to a live floor-plan window: the figure, its axis, and the source data.

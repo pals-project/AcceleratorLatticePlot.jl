@@ -1,17 +1,17 @@
 using Test
 using AcceleratorLatticePlot
-using PALSJulia          # for parse_and_expand_pals in the extraction tests
+using PALSParserJ          # for parse_and_expand_pals in the extraction tests
 import AcceleratorLatticePlot as alp
-import PALSJulia as pj
+import PALSParserJ as pj
 
 # CairoMakie is the backend under test. AcceleratorLatticePlot itself depends
 # only on Makie, so a backend is needed here purely to prove the figures render
 # -- and Cairo is pure software, which means these tests run anywhere, including
 # the CI runners that cannot give GLMakie an OpenGL context.
 #
-# Loading a Makie backend and then calling into the pals-cpp parser is also the
-# pairing that aborts the process when the library was built against the wrong
-# C++ runtime (see the README), so running the two together is deliberate.
+# Loading a Makie backend and then calling into the PALSParserCpp parser is also
+# the pairing that aborts the process when the library was built against the
+# wrong C++ runtime (see the README), so running the two together is deliberate.
 using CairoMakie
 
 # Triangle vertex indices as plain Ints. Faces are GeometryBasics `OffsetInteger`
@@ -102,8 +102,8 @@ end
     @test isapprox(alp.xaxis(W), alp.Vec3d(cos(0.7), 0, -sin(0.7)); atol=1e-12)
 end
 
-# `place` is pals-cpp's floor_propagate applied to straight_LS/bend_LS, evaluated
-# partway along the element. Each of those pieces is checked separately, and then
+# `place` is PALSParserCpp's floor_propagate applied to straight_LS/bend_LS,
+# evaluated partway along the element. Each piece is checked separately, and then
 # the property that matters most: propagating in steps must agree with
 # propagating in one go, since that is what carrying a shape along an arc does.
 @testset "reference-curve propagation" begin
@@ -151,7 +151,7 @@ end
     @test isapprox(p.r, r0 + 2.0 * alp.zaxis(W0); atol=1e-12)
 end
 
-# A tilted bend follows pals-cpp's `bend_LS`, which implements the standard's
+# A tilted bend follows PALSParserCpp's `bend_LS`, which implements the standard's
 # Eq. ustt. The standard gives that same rotation twice -- as an axis and angle
 # (Eq. ustt) and as a conjugation by R_z(tilt_ref) (Eq. srrr) -- and the two
 # agree, both with each other and with the displacement of Eq. lrztt, which is
@@ -161,8 +161,8 @@ end
 # This is worth pinning down because it did not always hold: Eq. ustt used to
 # read u = (-sin θ_tr, -cos θ_tr, 0), a different rotation for a rolled bend,
 # and the frame came off its own tangent by about 2 sin(α_b) sin(θ_tr). The doc,
-# pals-cpp and this package have all been corrected together; these tests fail on
-# either side of a regression rather than letting a tilted bend quietly open a
+# PALSParserCpp and this package have all been corrected together; these tests
+# fail on either side of a regression rather than letting a tilted bend open a
 # gap against the `FloorP` the expander wrote at its exit face.
 @testset "tilted bends follow the expander's convention" begin
     ustt(a, t) = alp.axis_angle(alp.Vec3d(sin(t), -cos(t), 0.0), a)
@@ -269,10 +269,10 @@ end
     end
 end
 
-# Sign convention, fixed by pals-cpp's bend_LS (Eq. lrztt): the displacement in
-# the bend plane is (rho*(cos(angle)-1), 0, rho*sin(angle)) along the branch
-# axes, so a positive angle moves the exit toward *negative* branch x. Drawn in
-# "zx" from theta = 0, branch x is the vertical screen axis.
+# Sign convention, fixed by PALSParserCpp's bend_LS (Eq. lrztt): the
+# displacement in the bend plane is (rho*(cos(angle)-1), 0, rho*sin(angle)) along
+# the branch axes, so a positive angle moves the exit toward *negative* branch x.
+# Drawn in "zx" from theta = 0, branch x is the vertical screen axis.
 @testset "geometry: a positive bend angle curves toward -x" begin
     tab = synth_table(names=["b"], kinds=["Bend"], lengths=[1.0],
                       x=[0.0], z=[0.0], theta=[0.0], angle=[0.5])
@@ -635,9 +635,9 @@ end
     @test extrema(p -> p[1], pts) == (0.0f0, 2.0f0)
 end
 
-# Extraction from a real expanded lattice, if the sibling PALSJulia checkout with
-# its example files is present (the same side-by-side layout the parser needs).
-_lattice_file(name) = normpath(joinpath(@__DIR__, "..", "..", "PALSJulia",
+# Extraction from a real expanded lattice, if the sibling PALSParserJ checkout
+# with its example files is present (the side-by-side layout the parser needs).
+_lattice_file(name) = normpath(joinpath(@__DIR__, "..", "..", "PALSParserJ",
                                         "lattice_files", name))
 const CONVERT = _lattice_file("convert.pals.yaml")
 const BTA = _lattice_file("bta.pals.yaml")
@@ -729,7 +729,7 @@ if isfile(CONVERT)
         @test !pj.haskey(pruned, "FloorP")
     end
 else
-    @info "Skipping extraction tests: $CONVERT not found (needs sibling PALSJulia checkout)"
+    @info "Skipping extraction tests: $CONVERT not found (needs a sibling PALSParserJ checkout)"
 end
 
 # The drawing has to agree with the floor coordinates the expander computed, not
