@@ -87,12 +87,13 @@ end
 """
     w_matrix(theta, phi, psi) -> Mat3
 
-The standard's orientation matrix `W = R_y(theta) * R_x(phi) * R_z(psi)`
-(Eq. www) built from the three `FloorP` angles. Its third column, the direction
-of travel, is `(sinθcosφ, -sinφ, cosθcosφ)`; with `phi = psi = 0` it reduces to a
+The standard's orientation matrix `W = R_y(theta) * R_x(-phi) * R_z(psi)`
+(Eq. www) built from the three `FloorP` angles. As in Bmad, a positive `phi`
+tilts the direction of travel toward +Y. Its third column, the direction of
+travel, is `(sinθcosφ, sinφ, cosθcosφ)`; with `phi = psi = 0` it reduces to a
 heading in the horizontal plane.
 """
-@inline w_matrix(theta, phi, psi) = rot_y(theta) * (rot_x(phi) * rot_z(psi))
+@inline w_matrix(theta, phi, psi) = rot_y(theta) * (rot_x(-phi) * rot_z(psi))
 
 """
     Placement

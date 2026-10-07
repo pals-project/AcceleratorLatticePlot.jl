@@ -84,7 +84,7 @@ end
         # in closed form.
         z = alp.zaxis(W)
         @test isapprox(z[1], sin(th) * cos(ph); atol=1e-12)
-        @test isapprox(z[2], -sin(ph); atol=1e-12)
+        @test isapprox(z[2], sin(ph); atol=1e-12)
         @test isapprox(z[3], cos(th) * cos(ph); atol=1e-12)
 
         # ...and W is a rotation: its columns are orthonormal and right-handed.
@@ -656,7 +656,7 @@ end
 # A reference curve that leaves the picture plane used to be drawn as though it
 # did not: the drawing frame was built from the heading `theta` alone, so a
 # pitched element came out at its full length instead of its projected length --
-# overshooting by L(1 - cos(phi)), which on the 1.3 m cavity at phi = -0.63 in
+# overshooting by L(1 - cos(phi)), which on the 1.3 m cavity at |phi| = 0.63 in
 # convert.pals.yaml was a quarter of a metre. The frame is now the standard's W
 # matrix, so the projection is the real one.
 @testset "an element pitched out of the plane is drawn foreshortened" begin
@@ -671,10 +671,10 @@ end
         @test isapprox(exit[2] - entrance[2], 0.0; atol=1e-5)
 
         # The part that left the plane has to show up in a view that contains
-        # the vertical: in "zy" the same element rises by -L*sin(phi).
+        # the vertical: in "zy" the same element rises by L*sin(phi).
         _, exit_zy = drawn_ends(tab, 1; view="zy")
         entrance_zy, _ = drawn_ends(tab, 1; view="zy")
-        @test isapprox(exit_zy[2] - entrance_zy[2], -L * sin(phi); atol=1e-5)
+        @test isapprox(exit_zy[2] - entrance_zy[2], L * sin(phi); atol=1e-5)
     end
 end
 
