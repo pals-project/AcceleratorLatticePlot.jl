@@ -40,7 +40,7 @@ Field `i` of each vector describes the same element. `node[i]` is the element's
 `FloorP` values are the element's **upstream (entrance)** end in the global
 reference system: position `(x, y, z)` and the three orientation angles `theta`
 (azimuth), `phi` (pitch) and `psi` (roll), which together give the orientation
-matrix `W = R_y(theta) R_x(phi) R_z(psi)` (see [`w_matrix`](@ref)). `angle` is
+matrix `W = R_y(theta) R_x(-phi) R_z(psi)` (see [`w_matrix`](@ref)). `angle` is
 the total reference bend angle in radians (0 for straight elements) and
 `tilt_ref` the bend's reference tilt, which rolls its bend plane.
 
